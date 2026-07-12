@@ -1,0 +1,52 @@
+{
+  "name": "sunscout",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:api": "tsx watch server/index.ts",
+    "dev:all": "sh -c 'npm run dev:api & npm run dev'",
+    "build": "vite build && node scripts/inline-css.mjs",
+    "build:api": "tsc -p server/tsconfig.json",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit && tsc -p server/tsconfig.json --noEmit",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "tsx server/scripts/migrate.ts",
+    "db:seed": "tsx server/scripts/seed.ts",
+    "db:reset": "docker compose down -v && docker compose up -d --wait postgres && npm run db:migrate && npm run db:seed",
+    "conditions:refresh": "tsx server/scripts/refreshConditions.ts",
+    "test:api": "tsx server/scripts/smoke.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "5.0.4",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "helmet": "^8.2.0",
+    "lucide-react": "^1.21.0",
+    "pg": "^8.22.0",
+    "qrcode.react": "^4.2.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "recharts": "^3.8.1",
+    "vite": "6.4.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "prettier": "^3.8.4",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

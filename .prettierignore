@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-server
+*.sql
+package-lock.json
+docs
+*.md
+.env.example

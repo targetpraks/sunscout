@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sunscout-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sunscout
+      POSTGRES_USER: sunscout
+      POSTGRES_PASSWORD: sunscout
+    ports:
+      - "55432:5432"
+    volumes:
+      - sunscout-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sunscout -d sunscout"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  sunscout-postgres-data:

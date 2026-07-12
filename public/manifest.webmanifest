@@ -1,0 +1,17 @@
+{
+  "name": "SunScout",
+  "short_name": "SunScout",
+  "description": "Beach discovery, live conditions, and booking.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF6F0",
+  "theme_color": "#0A6E78",
+  "icons": [
+    {
+      "src": "/assets/beaches/praia-da-coelha.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

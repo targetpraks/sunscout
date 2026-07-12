@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="344" viewBox="0 0 860 344">
+  <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a4a7a"/><stop offset="1" stop-color="#7a8aa0"/></linearGradient><linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0e8294"/><stop offset="1" stop-color="#0a6272"/></linearGradient><radialGradient id="sun" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#f0f0ff" stop-opacity="0.6"/><stop offset="1" stop-color="#f0f0ff" stop-opacity="0"/></radialGradient></defs>
+  <rect width="860" height="344" fill="url(#sky)"/>
+  <circle cx="640" cy="200" r="80" fill="url(#sun)"/>
+  <circle cx="640" cy="200" r="42" fill="#f0f0ff" opacity="0.85"/>
+  <path d="M0 180 Q 215 150 430 175 T 860 170 L 860 344 L 0 344 Z" fill="url(#sea)"/>
+  <path d="M0 185 Q 215 158 430 180 T 860 176" stroke="#ffffff" stroke-opacity="0.25" stroke-width="2" fill="none"/>
+  <path d="M0 250 Q 120 240 200 248 Q 280 256 360 246 Q 460 236 560 250 Q 680 266 860 252 L 860 344 L 0 344 Z" fill="#e8d4a0"/>
+  <path d="M0 168 L 70 120 L 130 170 L 190 110 L 250 175 Z" fill="#c0884a" opacity="0.8"/>
+  <path d="M860 170 L 800 130 L 740 175 L 690 120 L 640 172 Z" fill="#c0884a" opacity="0.8"/>
+  <text x="36" y="312" font-family="Inter, sans-serif" font-size="26" font-weight="700" fill="#0f1e2e" opacity="0.6">Falesia</text>
+</svg>
