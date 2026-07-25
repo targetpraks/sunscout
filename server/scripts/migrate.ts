@@ -1,9 +1,10 @@
 import "dotenv/config";
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { pool } from "../db";
 
-const migrationDirectory = new URL("../migrations", import.meta.url).pathname;
+const migrationDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
 
 async function migrate() {
   await pool.query(`
