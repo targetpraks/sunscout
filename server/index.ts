@@ -28,6 +28,7 @@ import {
 import { listBeaches } from "./beaches";
 import { refreshConditions } from "./conditions";
 import { pool, withTransaction } from "./db";
+import { migrate } from "./migrate";
 
 const app = express();
 const port = Number(process.env.API_PORT ?? 8787);
@@ -2126,6 +2127,15 @@ app.use(
   },
 );
 
-app.listen(port, "0.0.0.0", () => {
-  console.log(`SunScout API listening at http://0.0.0.0:${port}`);
-});
+// Run migrations on boot (idempotent) — ensures fresh DBs have schema
+migrate()
+  .then(() => {
+    console.log("Migrations up to date");
+    app.listen(port, "0.0.0.0", () => {
+      console.log(`SunScout API listening at http://0.0.0.0:${port}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Migration failed", error);
+    process.exit(1);
+  });
