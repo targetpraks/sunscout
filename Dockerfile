@@ -12,11 +12,10 @@ ENV NODE_ENV=production
 ENV PORT=8787
 ENV API_PORT=8787
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/dist-server ./dist-server
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/public ./public
 EXPOSE 8787
-CMD ["node", "dist-server/index.js"]
+CMD ["npx", "tsx", "server/index.ts"]
