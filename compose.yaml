@@ -28,6 +28,11 @@ services:
       DATABASE_URL: postgresql://sunscout:sunscout@postgres:5432/sunscout
     ports:
       - "8787:8787"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.sunscout.rule=Host(`usolei362859c24hssx15rj8.192.168.0.154.sslip.io`)"
+      - "traefik.http.routers.sunscout.entryPoints=http"
+      - "traefik.http.services.sunscout.loadbalancer.server.port=8787"
     depends_on:
       postgres:
         condition: service_healthy
