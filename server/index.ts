@@ -10,6 +10,8 @@ import { dispatchPush, pushConfigured, pushPublicKey } from "./push";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { requireUser, resolveOptionalUser } from "./auth";
 import {
@@ -51,6 +53,16 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "256kb" }));
+
+// Serve built frontend (production)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.resolve(__dirname, "../dist");
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(distDir));
+  app.get(/^\/(?!api\/).*/, (_req, res) => {
+    res.sendFile(path.join(distDir, "index.html"));
+  });
+}
 
 app.get("/api/health", async (_request, response) => {
   const result = await pool.query<{ now: string }>("select now()");
@@ -2114,6 +2126,6 @@ app.use(
   },
 );
 
-app.listen(port, "127.0.0.1", () => {
-  console.log(`SunScout API listening at http://127.0.0.1:${port}`);
+app.listen(port, "0.0.0.0", () => {
+  console.log(`SunScout API listening at http://0.0.0.0:${port}`);
 });

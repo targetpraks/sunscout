@@ -11,7 +11,7 @@ import type {
   UserProfile,
 } from "./types";
 
-const apiBase = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8787/api";
+const apiBase = import.meta.env.VITE_API_URL ?? "/api";
 
 async function apiRequest<T>(
   path: string,
