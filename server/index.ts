@@ -46,7 +46,21 @@ async function audit(
   );
 }
 
-app.use(helmet({ crossOriginResourcePolicy: false }));
+const isHttps = process.env.NODE_ENV === "production" && !!process.env.FORCE_HTTPS;
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+    // Only force HTTPS upgrades when actually serving over HTTPS —
+    // on plain-HTTP LAN deployments it silently blocks module scripts.
+    contentSecurityPolicy: isHttps ? undefined : {
+      useDefaults: true,
+      directives: {
+        ...helmet.contentSecurityPolicy.defaults.directives,
+        "upgrade-insecure-requests": null,
+      },
+    },
+  }),
+);
 app.use(
   cors({
     origin: ["http://127.0.0.1:5173", "http://localhost:5173"],
