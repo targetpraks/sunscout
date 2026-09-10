@@ -52,13 +52,7 @@ app.use(
     crossOriginResourcePolicy: false,
     // Only force HTTPS upgrades when actually serving over HTTPS —
     // on plain-HTTP LAN deployments it silently blocks module scripts.
-    contentSecurityPolicy: isHttps ? undefined : {
-      useDefaults: true,
-      directives: {
-        ...helmet.contentSecurityPolicy.defaults.directives,
-        "upgrade-insecure-requests": null,
-      },
-    },
+    contentSecurityPolicy: isHttps ? undefined : false,
   }),
 );
 app.use(
