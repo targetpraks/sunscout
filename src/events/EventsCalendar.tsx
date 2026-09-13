@@ -13,6 +13,7 @@ import {
   type BeachEvent,
   type EventCategory,
 } from "./types";
+import { EventNowBanner } from "./EventNowBanner";
 
 export const CATEGORY_ICONS: Record<EventCategory, typeof Trophy> = {
   party: PartyPopper,
@@ -176,7 +177,8 @@ export function EventsCalendar({
   error,
   onRetry,
 }: EventsCalendarProps) {
-  const partition = consumerCalendarPartition(events, now ?? new Date());
+  const at = now ?? new Date();
+  const partition = consumerCalendarPartition(events, at);
   return (
     <div
       style={{ display: "flex", flexDirection: "column", gap: 12 }}
@@ -229,6 +231,7 @@ export function EventsCalendar({
         </p>
       ) : (
         <>
+          <EventNowBanner events={partition.happeningNow} now={at} />
           <Section
             label="Happening now"
             events={partition.happeningNow}

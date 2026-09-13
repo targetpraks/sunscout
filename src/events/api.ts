@@ -61,3 +61,35 @@ export async function cancelEvent(eventPublicId: string): Promise<BeachEvent> {
     { method: "POST" },
   );
 }
+
+/**
+ * Live ("what's happening now") events for one beach at an instant. Omit
+ * `at` to let the server use its own clock. Raw array, matching the rest of
+ * the events client contract.
+ */
+export async function fetchEventsNow(
+  beachPublicId: string,
+  at?: Date,
+): Promise<BeachEvent[]> {
+  const search = new URLSearchParams({ beachId: beachPublicId });
+  if (at != null) search.set("at", at.toISOString());
+  return apiRequest<BeachEvent[]>(`/events/now?${search.toString()}`);
+}
+
+/**
+ * Upcoming published events for one beach, soonest first. `from` defaults to
+ * the server clock; `limit` caps the count (1..50, default 10).
+ */
+export async function fetchUpcomingEvents(
+  beachPublicId: string,
+  from?: Date,
+  limit?: number,
+): Promise<BeachEvent[]> {
+  const search = new URLSearchParams();
+  if (from != null) search.set("from", from.toISOString());
+  if (limit != null) search.set("limit", String(limit));
+  const query = search.toString();
+  return apiRequest<BeachEvent[]>(
+    `/events/beaches/${encodeURIComponent(beachPublicId)}/upcoming${query ? `?${query}` : ""}`,
+  );
+}

@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import express from "express";
 import { newPublicId } from "./tokens";
 import { z } from "zod";
 
@@ -325,4 +326,114 @@ export async function cancelEvent(
   coordinatorId: number,
 ): Promise<BeachEvent> {
   return setEventState(db, eventPublicId, coordinatorId, "cancelled");
+}
+
+/**
+ * Live events for one beach at a specific instant: published events whose
+ * half-open window [start, end) covers `at`. Past, upcoming, draft and
+ * cancelled events are all excluded. Beach scoping and the published-only
+ * filter come from listBeachEvents; the window predicate is the same one
+ * consumerCalendarPartition applies on the client, so the two sides can
+ * never disagree.
+ */
+export async function listLiveEventsAt(
+  db: Queryable,
+  beachPublicId: string,
+  at: Date = new Date(),
+): Promise<BeachEvent[]> {
+  const events = await listBeachEvents(db, beachPublicId);
+  return partitionEvents(consumerVisibleEvents(events), at).happeningNow;
+}
+
+/**
+ * Published events for one beach that start strictly after `from`, soonest
+ * first, capped at `limit`.
+ */
+export async function listUpcomingEvents(
+  db: Queryable,
+  beachPublicId: string,
+  from: Date = new Date(),
+  limit = 10,
+): Promise<BeachEvent[]> {
+  const events = await listBeachEvents(db, beachPublicId);
+  return partitionEvents(consumerVisibleEvents(events), from).upcoming.slice(
+    0,
+    limit,
+  );
+}
+
+const beachIdSchema = z.string().uuid();
+
+/**
+ * `at`/`from` instants accept ISO 8601 with a UTC designator or a numeric
+ * offset (e.g. 2026-06-15T09:30:00-03:00). Naive local timestamps without
+ * any zone are rejected — a "now" view must never guess a timezone.
+ */
+const instantSchema = z.string().datetime({ offset: true });
+
+const nowQuerySchema = z.object({
+  beachId: beachIdSchema,
+  at: instantSchema.optional(),
+});
+
+const upcomingQuerySchema = z.object({
+  from: instantSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+
+/**
+ * Consumer events router.
+ *
+ * MOUNT NOTE for the server/index.ts owner: this router is intentionally NOT
+ * wired into server/index.ts from this worktree (that file is owned by
+ * another stream). It belongs directly after the existing auth middleware:
+ *
+ *   app.use("/api/events", createEventsRouter(pool));
+ *
+ * Auth is inherited from the surrounding app (requireUser on /api/events).
+ * No POST / route is defined here on purpose: server/index.ts already owns
+ * POST /api/events as its analytics sink and a router-level POST would
+ * shadow it.
+ *
+ * Routes (raw BeachEvent[] JSON, matching the existing events client):
+ *   GET /now?beachId=<uuid>&at=<ISO instant>
+ *   GET /beaches/:beachPublicId/upcoming?from=<ISO>&limit=1..50
+ */
+export function createEventsRouter(db: Queryable): express.Router {
+  const router = express.Router();
+
+  router.get("/now", async (request, response) => {
+    const parsed = nowQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      response
+        .status(400)
+        .json({ error: "invalid_request", issues: parsed.error.issues });
+      return;
+    }
+    const at = parsed.data.at ? new Date(parsed.data.at) : new Date();
+    response.json(await listLiveEventsAt(db, parsed.data.beachId, at));
+  });
+
+  router.get("/beaches/:beachPublicId/upcoming", async (request, response) => {
+    const beach = beachIdSchema.safeParse(request.params.beachPublicId);
+    if (!beach.success) {
+      response
+        .status(400)
+        .json({ error: "invalid_request", issues: beach.error.issues });
+      return;
+    }
+    const parsed = upcomingQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      response
+        .status(400)
+        .json({ error: "invalid_request", issues: parsed.error.issues });
+      return;
+    }
+    const from = parsed.data.from ? new Date(parsed.data.from) : new Date();
+    response.json(
+      await listUpcomingEvents(db, beach.data, from, parsed.data.limit),
+    );
+  });
+
+  return router;
 }
