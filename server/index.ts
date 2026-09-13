@@ -27,6 +27,7 @@ import {
 } from "./badges";
 import { listBeaches } from "./beaches";
 import { refreshConditions } from "./conditions";
+import { vibesRouter } from "./vibes";
 import { pool, withTransaction } from "./db";
 import { migrate } from "./migrate";
 
@@ -209,6 +210,7 @@ app.use("/api/bookings", requireUser);
 app.use("/api/events", requireUser);
 app.use("/api/conditions", requireUser);
 app.use("/api/merchant", requireUser);
+app.use("/api", vibesRouter);
 
 app.post("/api/conditions/refresh", async (request, response) => {
   const input = z
