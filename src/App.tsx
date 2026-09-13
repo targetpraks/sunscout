@@ -60,6 +60,7 @@ import {
   fetchJournal as fetchApiJournal,
   fetchStats as fetchApiStats,
   rateBeach as rateApiBeach,
+  rankBeachesByPulse,
   submitBeachReport as submitApiReport,
   fetchCommunityData as fetchApiCommunityData,
   fetchDayQuality as fetchApiDayQuality,
