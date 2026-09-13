@@ -9,9 +9,9 @@
 -- scopes from the product direction (friends, chill, beach-club) so
 -- workstream-1's per-audience Pulse leaderboards always find their bucket.
 --
--- NOTE: numbered 004 per the workstream spec even though 004_release2.sql
--- exists — the migration loader keys on the full filename and sorts
--- lexicographically, so both apply independently.
+-- NOTE: originally numbered 004 by the workstream spec while 004_release2.sql
+-- already existed; renumbered to 015 so the sequence stays readable (the loader
+-- keys on the full filename)
 
 create table if not exists beach_vibe_vote (
   id bigint generated always as identity primary key,

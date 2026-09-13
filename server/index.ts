@@ -27,6 +27,7 @@ import {
 } from "./badges";
 import { listBeaches } from "./beaches";
 import { accuracyRouter } from "./accuracy";
+import { pillarsRouter } from "./pillarsRouter";
 import { refreshConditions } from "./conditions";
 import { vibesRouter } from "./vibes";
 import { pool, withTransaction } from "./db";
@@ -215,6 +216,8 @@ app.use("/api/events", requireUser);
 app.use("/api/conditions", requireUser);
 app.use("/api/merchant", requireUser);
 app.use("/api", vibesRouter);
+// Pillars from the burst: sighting rail, per-audience Beach Pulse, beach events.
+app.use(pillarsRouter);
 
 app.post("/api/conditions/refresh", async (request, response) => {
   const input = z
