@@ -1,7 +1,8 @@
 import { readFile, writeFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const distDir = new URL("../dist", import.meta.url).pathname;
+const distDir = fileURLToPath(new URL("../dist", import.meta.url));
 const htmlPath = join(distDir, "index.html");
 let html = await readFile(htmlPath, "utf8");
 const assetsDir = join(distDir, "assets");

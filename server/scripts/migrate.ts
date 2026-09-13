@@ -4,7 +4,11 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "../db";
 
-const migrationDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
+const migrationDirectory = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "migrations",
+);
 
 async function migrate() {
   await pool.query(`

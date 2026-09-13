@@ -46,7 +46,8 @@ async function audit(
   );
 }
 
-const isHttps = process.env.NODE_ENV === "production" && !!process.env.FORCE_HTTPS;
+const isHttps =
+  process.env.NODE_ENV === "production" && !!process.env.FORCE_HTTPS;
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
