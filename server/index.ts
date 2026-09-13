@@ -196,6 +196,14 @@ app.get("/api/beaches", async (request, response) => {
   });
 });
 
+// Pillar + accuracy routers mount BEFORE the /api/beaches/:slug catch-all below.
+// Express matches in registration order, so a catch-all registered first would
+// swallow the deeper paths (/api/beaches/:id/pulse, /sightings, /vibes).
+app.use(accuracyRouter);
+app.use("/api", vibesRouter);
+// Pillars from the burst: sighting rail, per-audience Beach Pulse, beach events.
+app.use(pillarsRouter);
+
 app.get("/api/beaches/:slug", async (request, response) => {
   const all = await listBeaches(pool, await resolveOptionalUser(request));
   const beach = all.find((item) => item.slug === request.params.slug);
@@ -206,18 +214,12 @@ app.get("/api/beaches/:slug", async (request, response) => {
   response.json({ data: beach });
 });
 
-// Condition accuracy feedback + per-beach data confidence (workstream 3)
-app.use(accuracyRouter);
-
 app.use("/api/me", requireUser);
 app.use("/api/check-ins", requireUser);
 app.use("/api/bookings", requireUser);
 app.use("/api/events", requireUser);
 app.use("/api/conditions", requireUser);
 app.use("/api/merchant", requireUser);
-app.use("/api", vibesRouter);
-// Pillars from the burst: sighting rail, per-audience Beach Pulse, beach events.
-app.use(pillarsRouter);
 
 app.post("/api/conditions/refresh", async (request, response) => {
   const input = z
