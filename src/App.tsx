@@ -104,6 +104,7 @@ import {
 } from "./api";
 import { beaches as fallbackBeaches, tideData } from "./data";
 import PulseLeaderboardScreen from "./pulse/PulseLeaderboardScreen";
+import { BeachCommunitySection } from "./community/BeachCommunitySection";
 import {
   ACTIVITY_OPTIONS,
   AUDIENCE_OPTIONS,
@@ -1580,6 +1581,17 @@ function BeachDetail({
             onToggle={() => setTideExpanded((current) => !current)}
           />
         </Suspense>
+        <section className="detail-section">
+          <div className="section-heading">
+            <h2>How it feels right now</h2>
+            <span>Community</span>
+          </div>
+          <BeachCommunitySection
+            beachId={beach.id}
+            beach={beach}
+            onToast={onToast}
+          />
+        </section>
         <div className="action-list">
           <ActionRow
             icon={Sun}
