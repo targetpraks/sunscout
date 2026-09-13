@@ -5,3 +5,6 @@ dist-server/
 *.log
 .env
 .DS_Store
+
+# graphify knowledge graph (generated; rebuild with `graphify update .`)
+graphify-out/
