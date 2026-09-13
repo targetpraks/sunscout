@@ -1,4 +1,4 @@
-import type { NewSightingInput, Sighting } from "./types";
+import type { NewSightingInput, Sighting, SightingAudience } from "./types";
 
 const apiBase = import.meta.env.VITE_API_URL ?? "/api";
 
@@ -41,15 +41,17 @@ export async function submitSighting(input: NewSightingInput) {
 /**
  * Fetch sightings for a beach, most recent first. Pass `limit` to cap the
  * count (the rail uses a small N) — the server selector is
- * expiry/moderation-aware.
+ * expiry/moderation-aware. Optional `audience` filters by audience tag.
  */
 export async function fetchSightings(
   beachId?: string,
   limit?: number,
+  audience?: SightingAudience,
 ): Promise<Sighting[]> {
   const search = new URLSearchParams();
   if (beachId) search.set("beachId", beachId);
   if (limit != null) search.set("limit", String(limit));
+  if (audience) search.set("audience", audience);
   const query = search.toString();
   const result = await apiRequest<{ data: Sighting[] }>(
     `/sightings${query ? `?${query}` : ""}`,

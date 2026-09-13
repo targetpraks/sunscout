@@ -1,3 +1,5 @@
+import express from "express";
+import type { Pool, PoolClient } from "pg";
 import { newPublicId } from "./tokens";
 
 /**
@@ -408,25 +410,66 @@ export type RailSelectorOptions = {
   limit: number;
   /** Restrict to a single beach when provided. */
   beachId?: string;
+  /** Restrict to a single audience tag when provided. */
+  audience?: SightingAudience;
 };
 
 /**
- * Expiry- and moderation-aware rail selector: excludes expired and
- * non-approved sightings, sorts most recent first, caps at `limit`.
+ * Expiry- and moderation-aware rail selector with deterministic freshness
+ * ordering (PRD §5.2 / §6.1):
+ *
+ *  1. freshness weight desc — recency dominates; expired rows are already
+ *     excluded, and link sightings persist but decay below fresh native
+ *     ones of the same age;
+ *  2. per-beach sighting volume desc — computed over the *visible candidate
+ *     set* (never the whole table, so zombie beaches cannot over-rank),
+ *     breaks ties between equal-freshness beaches;
+ *  3. capturedAt desc — newer capture wins the next tie;
+ *  4. native before link — at full ties a fresh native upload outranks an
+ *     outbound reference;
+ *  5. id asc — final stable tiebreak so the order is always deterministic.
  */
 export function selectRailSightings(
   sightings: Sighting[],
   options: RailSelectorOptions,
 ): Sighting[] {
   const { now, limit } = options;
-  return sightings
+  const candidates = sightings
     .filter((sighting) => sighting.moderationState === "approved")
     .filter((sighting) => !isExpired(sighting, now))
     .filter(
       (sighting) =>
         options.beachId === undefined || sighting.beachId === options.beachId,
     )
-    .sort((a, b) => b.capturedAt.getTime() - a.capturedAt.getTime())
+    .filter(
+      (sighting) =>
+        options.audience === undefined ||
+        sighting.audience === options.audience,
+    );
+
+  const volumeByBeach = new Map<string, number>();
+  for (const sighting of candidates) {
+    volumeByBeach.set(
+      sighting.beachId,
+      (volumeByBeach.get(sighting.beachId) ?? 0) + 1,
+    );
+  }
+
+  return candidates
+    .sort((a, b) => {
+      const freshnessDiff = freshnessWeight(b, now) - freshnessWeight(a, now);
+      if (freshnessDiff !== 0) return freshnessDiff;
+      const volumeDiff =
+        (volumeByBeach.get(b.beachId) ?? 0) -
+        (volumeByBeach.get(a.beachId) ?? 0);
+      if (volumeDiff !== 0) return volumeDiff;
+      const timeDiff = b.capturedAt.getTime() - a.capturedAt.getTime();
+      if (timeDiff !== 0) return timeDiff;
+      if (a.media.form !== b.media.form) {
+        return a.media.form === "native" ? -1 : 1;
+      }
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    })
     .slice(0, Math.max(0, limit));
 }
 
@@ -503,4 +546,218 @@ export function parseSightingRecord(record: SightingRecord): Sighting {
     capturedAt: new Date(record.captured_at),
     expiresAt: record.expires_at ? new Date(record.expires_at) : null,
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Persistence + HTTP layer.                                           *
+ *                                                                    *
+ * server/index.ts is owned by pending branches, so this module does   *
+ * NOT import the pool and does NOT mount itself. It exports a router  *
+ * factory taking an injected queryable handle (same pattern as        *
+ * events.ts) — the host app mounts it with:                           *
+ *   app.use("/api/sightings", createSightingsRouter(pool));           *
+ * Auth is deliberately not applied here (requireUser pulls in ./db);  *
+ * the mounting branch can wrap the router with its own middleware.    *
+ * ------------------------------------------------------------------ */
+
+export type SightingsDb = Pick<Pool | PoolClient, "query">;
+
+/**
+ * CamelCase wire shape (ISO string timestamps) — matches the client
+ * mirror's `Sighting` in src/sightings/types.ts.
+ */
+export type WireSighting = {
+  id: string;
+  beachId: string;
+  audience: SightingAudience;
+  timeOfDay: SightingTimeOfDay | null;
+  moderationState: SightingModerationState;
+  consent: SightingConsent;
+  media: SightingMedia;
+  caption: string | null;
+  capturedAt: string;
+  expiresAt: string | null;
+};
+
+export function toWireSighting(sighting: Sighting): WireSighting {
+  return {
+    id: sighting.id,
+    beachId: sighting.beachId,
+    audience: sighting.audience,
+    timeOfDay: sighting.timeOfDay,
+    moderationState: sighting.moderationState,
+    consent: sighting.consent,
+    media: sighting.media,
+    caption: sighting.caption,
+    capturedAt: sighting.capturedAt.toISOString(),
+    expiresAt: sighting.expiresAt ? sighting.expiresAt.toISOString() : null,
+  };
+}
+
+export type ListSightingsOptions = {
+  now: Date;
+  limit: number;
+  beachId?: string;
+  audience?: SightingAudience;
+};
+
+const SIGHTING_SELECT_COLUMNS = `id, beach_id, audience, time_of_day,
+  moderation_state, people_in_frame, people_consent, media_form, media_url,
+  media_mime_type, media_platform, media_attribution, caption, captured_at,
+  expires_at`;
+
+/**
+ * Active, moderation-cleared sightings for the rail. The SQL narrows the
+ * scan; the pure, unit-tested `selectRailSightings` is then re-applied to
+ * the rows so expiry exclusion, the moderation gate, and the deterministic
+ * freshness ordering are enforced even if a stale row slips past the query.
+ */
+export async function listSightings(
+  db: SightingsDb,
+  options: ListSightingsOptions,
+): Promise<WireSighting[]> {
+  const params: unknown[] = [options.now.toISOString()];
+  let sql = `select ${SIGHTING_SELECT_COLUMNS} from beach_sighting
+    where moderation_state = 'approved'
+      and (expires_at is null or expires_at > $1)`;
+  if (options.beachId) {
+    params.push(options.beachId);
+    sql += ` and beach_id = $${params.length}`;
+  }
+  if (options.audience) {
+    params.push(options.audience);
+    sql += ` and audience = $${params.length}`;
+  }
+  const result = await db.query<SightingRecord>(sql, params);
+  const sightings = result.rows.map((row) => parseSightingRecord(row));
+  return selectRailSightings(sightings, {
+    now: options.now,
+    limit: options.limit,
+    beachId: options.beachId,
+    audience: options.audience,
+  }).map(toWireSighting);
+}
+
+/** Persist a validated sighting. `createSighting` already set its TTL. */
+export async function insertSighting(
+  db: SightingsDb,
+  sighting: Sighting,
+): Promise<Sighting> {
+  const record = toSightingRecord(sighting);
+  await db.query(
+    `insert into beach_sighting (
+       id, beach_id, audience, time_of_day, moderation_state,
+       people_in_frame, people_consent, media_form, media_url,
+       media_mime_type, media_platform, media_attribution, caption,
+       captured_at, expires_at
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+    [
+      record.id,
+      record.beach_id,
+      record.audience,
+      record.time_of_day,
+      record.moderation_state,
+      record.people_in_frame,
+      record.people_consent,
+      record.media_form,
+      record.media_url,
+      record.media_mime_type,
+      record.media_platform,
+      record.media_attribution,
+      record.caption,
+      record.captured_at,
+      record.expires_at,
+    ],
+  );
+  return sighting;
+}
+
+/**
+ * Idempotent expiry sweep: flips `swept_at` on native rows whose TTL
+ * boundary has passed. The `swept_at is null` guard makes a second run a
+ * no-op; link sightings (null expires_at) are never touched. Rows are
+ * marked, not deleted — read-time exclusion remains the source of truth.
+ */
+export async function sweepExpiredSightings(
+  db: SightingsDb,
+  now: Date,
+): Promise<number> {
+  const result = await db.query<{ id: string }>(
+    `update beach_sighting set swept_at = $1
+     where expires_at is not null and expires_at <= $1 and swept_at is null
+     returning id`,
+    [now.toISOString()],
+  );
+  return result.rowCount ?? 0;
+}
+
+const DEFAULT_SIGHTINGS_LIMIT = 50;
+const MAX_SIGHTINGS_LIMIT = 100;
+
+/**
+ * Sightings router: GET / (list), POST / (capture), POST /sweep.
+ * Mount at /api/sightings from the host app.
+ */
+export function createSightingsRouter(db: SightingsDb) {
+  const router = express.Router();
+
+  router.get("/", async (request, response) => {
+    const now = new Date();
+    let limit = DEFAULT_SIGHTINGS_LIMIT;
+    if (request.query.limit !== undefined) {
+      const parsed = Number(request.query.limit);
+      if (
+        !Number.isInteger(parsed) ||
+        parsed < 1 ||
+        parsed > MAX_SIGHTINGS_LIMIT
+      ) {
+        response.status(400).json({ error: "invalid_limit" });
+        return;
+      }
+      limit = parsed;
+    }
+    const beachId = request.query.beachId
+      ? String(request.query.beachId).trim()
+      : undefined;
+    let audience: SightingAudience | undefined;
+    const rawAudience = request.query.audience
+      ? String(request.query.audience).trim().toLowerCase()
+      : "";
+    if (rawAudience) {
+      if (!SIGHTING_AUDIENCES.includes(rawAudience as SightingAudience)) {
+        response.status(400).json({ error: "invalid_audience" });
+        return;
+      }
+      audience = rawAudience as SightingAudience;
+    }
+    const data = await listSightings(db, {
+      now,
+      limit,
+      beachId: beachId || undefined,
+      audience,
+    });
+    response.json({ data });
+  });
+
+  router.post("/", async (request, response) => {
+    const created = createSighting(
+      request.body as NewSightingInput,
+      new Date(),
+    );
+    if (!created.ok) {
+      response
+        .status(422)
+        .json({ error: "invalid_sighting", issues: created.issues });
+      return;
+    }
+    await insertSighting(db, created.sighting);
+    response.status(201).json({ data: toWireSighting(created.sighting) });
+  });
+
+  router.post("/sweep", async (_request, response) => {
+    const swept = await sweepExpiredSightings(db, new Date());
+    response.json({ data: { swept } });
+  });
+
+  return router;
 }
