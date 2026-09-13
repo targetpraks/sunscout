@@ -1,5 +1,6 @@
 import { MapPin } from "lucide-react";
 import type { Beach } from "./types";
+import { SponsoredRail } from "./ads/SponsoredRail";
 
 type Origin = { label: string; latitude: number; longitude: number };
 
@@ -20,11 +21,18 @@ export function BeachMap({
   beaches,
   selectedIds,
   onSelect,
+  sponsoredBeachId = null,
 }: {
   origin: Origin;
   beaches: Beach[];
   selectedIds: string[];
   onSelect: (beach: Beach) => void;
+  /**
+   * Beach to scope the sponsored rail to (beach public id). Null/omitted
+   * renders the rail's honest empty state without a network request; App.tsx
+   * owners can wire the focused beach in their own workstreams.
+   */
+  sponsoredBeachId?: string | null;
 }) {
   const size = 320;
   const center = size / 2;
@@ -50,90 +58,106 @@ export function BeachMap({
 
   const rings = [10, 25, 50];
 
+  // Beach whose paid inventory the sponsored rail is scoped to (public id).
+  // Derived from the same `beaches` prop the map already renders, so no new
+  // coupling to App.tsx state.
+  const sponsoredBeach =
+    sponsoredBeachId == null
+      ? null
+      : (beaches.find((beach) => beach.id === sponsoredBeachId) ?? null);
+
   return (
-    <div
-      className="beach-map"
-      role="img"
-      aria-label={`Beach map around ${origin.label}`}
-    >
-      <svg viewBox={`0 0 ${size} ${size}`} width="100%" height="100%">
-        {rings.map((km) => (
+    <>
+      <div
+        className="beach-map"
+        role="img"
+        aria-label={`Beach map around ${origin.label}`}
+      >
+        <svg viewBox={`0 0 ${size} ${size}`} width="100%" height="100%">
+          {rings.map((km) => (
+            <circle
+              key={km}
+              cx={center}
+              cy={center}
+              r={km * scale}
+              fill="none"
+              stroke="rgba(10,110,120,0.18)"
+              strokeDasharray="3 4"
+            />
+          ))}
+          {rings.map((km) => (
+            <text
+              key={`label-${km}`}
+              x={center + 4}
+              y={center - km * scale + 10}
+              fill="#5A6B7A"
+              fontSize="8"
+            >
+              {km} km
+            </text>
+          ))}
+          <line
+            x1={0}
+            y1={center}
+            x2={size}
+            y2={center}
+            stroke="rgba(15,30,46,0.06)"
+          />
+          <line
+            x1={center}
+            y1={0}
+            x2={center}
+            y2={size}
+            stroke="rgba(15,30,46,0.06)"
+          />
+          <circle cx={center} cy={center} r={6} fill="#FF6B5C" />
           <circle
-            key={km}
             cx={center}
             cy={center}
-            r={km * scale}
+            r={11}
             fill="none"
-            stroke="rgba(10,110,120,0.18)"
-            strokeDasharray="3 4"
+            stroke="#FF6B5C"
+            strokeWidth={2}
+            opacity={0.4}
           />
-        ))}
-        {rings.map((km) => (
-          <text
-            key={`label-${km}`}
-            x={center + 4}
-            y={center - km * scale + 10}
-            fill="#5A6B7A"
-            fontSize="8"
-          >
-            {km} km
-          </text>
-        ))}
-        <line
-          x1={0}
-          y1={center}
-          x2={size}
-          y2={center}
-          stroke="rgba(15,30,46,0.06)"
-        />
-        <line
-          x1={center}
-          y1={0}
-          x2={center}
-          y2={size}
-          stroke="rgba(15,30,46,0.06)"
-        />
-        <circle cx={center} cy={center} r={6} fill="#FF6B5C" />
-        <circle
-          cx={center}
-          cy={center}
-          r={11}
-          fill="none"
-          stroke="#FF6B5C"
-          strokeWidth={2}
-          opacity={0.4}
-        />
-        {points.map((point) => (
-          <g
-            key={point.beach.id}
-            transform={`translate(${point.x}, ${point.y})`}
-            onClick={() => onSelect(point.beach)}
-            style={{ cursor: "pointer" }}
-          >
-            <circle
-              r={selectedIds.includes(point.beach.id) ? 8 : 6}
-              fill={
-                selectedIds.includes(point.beach.id) ? "#0A6E78" : "#2E8B6B"
-              }
-              stroke="#FAF6F0"
-              strokeWidth={2}
-            />
-            <text
-              y={-12}
-              textAnchor="middle"
-              fontSize="8"
-              fill="#0F1E2E"
-              fontWeight={600}
+          {points.map((point) => (
+            <g
+              key={point.beach.id}
+              transform={`translate(${point.x}, ${point.y})`}
+              onClick={() => onSelect(point.beach)}
+              style={{ cursor: "pointer" }}
             >
-              {point.beach.name.split(" ").slice(-1)[0]}
-            </text>
-          </g>
-        ))}
-      </svg>
-      <span className="beach-map-legend">
-        <MapPin size={12} /> {origin.label} · showing {points.length} beaches
-        within {radiusKm} km
-      </span>
-    </div>
+              <circle
+                r={selectedIds.includes(point.beach.id) ? 8 : 6}
+                fill={
+                  selectedIds.includes(point.beach.id) ? "#0A6E78" : "#2E8B6B"
+                }
+                stroke="#FAF6F0"
+                strokeWidth={2}
+              />
+              <text
+                y={-12}
+                textAnchor="middle"
+                fontSize="8"
+                fill="#0F1E2E"
+                fontWeight={600}
+              >
+                {point.beach.name.split(" ").slice(-1)[0]}
+              </text>
+            </g>
+          ))}
+        </svg>
+        <span className="beach-map-legend">
+          <MapPin size={12} /> {origin.label} · showing {points.length} beaches
+          within {radiusKm} km
+        </span>
+      </div>
+      {/* Sponsored rail sits OUTSIDE the role="img" container: interactive
+          links inside an image role are unreachable to the a11y tree. */}
+      <SponsoredRail
+        beachPublicId={sponsoredBeachId}
+        beachName={sponsoredBeach?.name ?? null}
+      />
+    </>
   );
 }
