@@ -9,17 +9,22 @@ import {
   YAxis,
 } from "recharts";
 import { tideData } from "./data";
+import { ShareCardButton } from "./share/ShareCardButton";
 import { daytimeLowest, tideExtrema } from "./tide";
-import type { TidePoint } from "./types";
+import type { Beach, TidePoint } from "./types";
 
 export function TidePanel({
   points,
   expanded,
   onToggle,
+  beach,
 }: {
   points: TidePoint[];
   expanded: boolean;
   onToggle: () => void;
+  /** Beach whose live conditions are shared. Optional so the Today-screen
+   * mount (no beach context) keeps rendering unchanged. */
+  beach?: Beach;
 }) {
   const reduceMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
@@ -109,6 +114,7 @@ export function TidePanel({
           </p>
         ) : null}
       </div>
+      {beach ? <ShareCardButton beach={beach} /> : null}
     </section>
   );
 }
