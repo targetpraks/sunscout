@@ -26,7 +26,10 @@ import {
   getUserPoints,
 } from "./badges";
 import { listBeaches } from "./beaches";
+import { accuracyRouter } from "./accuracy";
+import { pillarsRouter } from "./pillarsRouter";
 import { refreshConditions } from "./conditions";
+import { vibesRouter } from "./vibes";
 import { pool, withTransaction } from "./db";
 import { migrate } from "./migrate";
 
@@ -192,6 +195,14 @@ app.get("/api/beaches", async (request, response) => {
     meta: { count: filtered.length, conditions: refreshMeta, origin },
   });
 });
+
+// Pillar + accuracy routers mount BEFORE the /api/beaches/:slug catch-all below.
+// Express matches in registration order, so a catch-all registered first would
+// swallow the deeper paths (/api/beaches/:id/pulse, /sightings, /vibes).
+app.use(accuracyRouter);
+app.use("/api", vibesRouter);
+// Pillars from the burst: sighting rail, per-audience Beach Pulse, beach events.
+app.use(pillarsRouter);
 
 app.get("/api/beaches/:slug", async (request, response) => {
   const all = await listBeaches(pool, await resolveOptionalUser(request));

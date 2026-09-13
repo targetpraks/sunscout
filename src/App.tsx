@@ -103,6 +103,8 @@ import {
   voteVibe as apiVoteVibe,
 } from "./api";
 import { beaches as fallbackBeaches, tideData } from "./data";
+import PulseLeaderboardScreen from "./pulse/PulseLeaderboardScreen";
+import { BeachCommunitySection } from "./community/BeachCommunitySection";
 import {
   ACTIVITY_OPTIONS,
   AUDIENCE_OPTIONS,
@@ -522,6 +524,7 @@ function TodayScreen({
   onOpenBooking,
   onCancelBooking,
   onOpenGoldenHour,
+  onOpenPulse,
   onToast,
 }: {
   beach: Beach;
@@ -533,6 +536,7 @@ function TodayScreen({
   onOpenBooking: () => void;
   onCancelBooking: () => void;
   onOpenGoldenHour: () => void;
+  onOpenPulse: () => void;
   onToast: (message: string) => void;
 }) {
   const [tideExpanded, setTideExpanded] = useState(false);
@@ -592,6 +596,13 @@ function TodayScreen({
           />
         </Suspense>
         <div className="action-list">
+          <ActionRow
+            icon={Activity}
+            title="Beach Pulse"
+            subtitle="Ranked for how you beach — families, solo, party & more"
+            trailing="Live"
+            onClick={onOpenPulse}
+          />
           <ActionRow
             icon={Sun}
             title="Golden Hour"
@@ -1570,6 +1581,17 @@ function BeachDetail({
             onToggle={() => setTideExpanded((current) => !current)}
           />
         </Suspense>
+        <section className="detail-section">
+          <div className="section-heading">
+            <h2>How it feels right now</h2>
+            <span>Community</span>
+          </div>
+          <BeachCommunitySection
+            beachId={beach.id}
+            beach={beach}
+            onToast={onToast}
+          />
+        </section>
         <div className="action-list">
           <ActionRow
             icon={Sun}
@@ -3823,6 +3845,7 @@ export function App() {
   const [institutionOpen, setInstitutionOpen] = useState(false);
   const [opsOpen, setOpsOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
+  const [pulseOpen, setPulseOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [premiumOpen, setPremiumOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -4026,6 +4049,33 @@ export function App() {
     );
   } else if (journalOpen) {
     screen = <JournalScreen onBack={() => setJournalOpen(false)} />;
+  } else if (pulseOpen) {
+    screen = (
+      <div>
+        <button
+          onClick={() => setPulseOpen(false)}
+          style={{
+            margin: "12px 16px",
+            background: "none",
+            border: "none",
+            color: "#0A6E78",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          ← Back
+        </button>
+        <PulseLeaderboardScreen
+          onSelectBeach={(beachId) => {
+            const beach = beachCatalog.find((item) => item.id === beachId);
+            if (beach) {
+              setPulseOpen(false);
+              selectBeach(beach);
+            }
+          }}
+        />
+      </div>
+    );
   } else if (opsOpen) {
     screen = <OpsScreen onBack={() => setOpsOpen(false)} />;
   } else if (institutionOpen) {
@@ -4089,6 +4139,7 @@ export function App() {
           }
         }}
         onOpenGoldenHour={() => setGoldenHourBeach(homeBeach)}
+        onOpenPulse={() => setPulseOpen(true)}
         onToast={showToast}
       />
     );
