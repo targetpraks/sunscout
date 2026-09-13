@@ -26,6 +26,7 @@ import {
   getUserPoints,
 } from "./badges";
 import { listBeaches } from "./beaches";
+import { accuracyRouter } from "./accuracy";
 import { refreshConditions } from "./conditions";
 import { pool, withTransaction } from "./db";
 import { migrate } from "./migrate";
@@ -202,6 +203,9 @@ app.get("/api/beaches/:slug", async (request, response) => {
   }
   response.json({ data: beach });
 });
+
+// Condition accuracy feedback + per-beach data confidence (workstream 3)
+app.use(accuracyRouter);
 
 app.use("/api/me", requireUser);
 app.use("/api/check-ins", requireUser);
