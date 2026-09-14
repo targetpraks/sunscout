@@ -4,13 +4,19 @@ import {
   AUDIENCE_PROFILES,
   CONDITION_STALE_HOURS,
   FRESHNESS_WINDOW_H,
+  LIVE_NOW_BOOST,
+  LIVE_NOW_DECAY_H,
+  LIVE_NOW_FLOOR,
+  LIVE_NOW_WINDOW_H,
   MISSING_SIGNAL_DEFAULTS,
   NEUTRAL_SIGNAL_SCORE,
   STALE_CONDITION_FACTOR,
+  PULSE_AUDIENCES,
   badgeTier,
   computePulse,
   conditionFreshnessFactor,
   freshnessFactor,
+  liveNowFactor,
   pulseLabel,
   rankByPulse,
 } from "./scoring";
@@ -524,5 +530,150 @@ describe("all six audiences produce sane scores", () => {
         expect(r.score).toBeLessThanOrEqual(100);
       }
     }
+  });
+});
+
+describe("liveNowFactor (AC: live-now boost and 24h decay)", () => {
+  it("is >= 1.05 within the 2h window and decays monotonically to the 0.8 floor at 24h", () => {
+    // No signals at all: the documented floor, well inside the <= 0.85 contract.
+    expect(liveNowFactor(null)).toBe(LIVE_NOW_FLOOR);
+    expect(LIVE_NOW_BOOST).toBeGreaterThanOrEqual(1.05);
+    expect(LIVE_NOW_FLOOR).toBeLessThanOrEqual(0.85);
+    // Inside the window: the full documented boost, exactly.
+    expect(liveNowFactor(0)).toBe(LIVE_NOW_BOOST);
+    expect(liveNowFactor(LIVE_NOW_WINDOW_H)).toBe(LIVE_NOW_BOOST);
+    // Just past the window the decay starts immediately.
+    expect(liveNowFactor(LIVE_NOW_WINDOW_H + 0.01)).toBeLessThan(
+      LIVE_NOW_BOOST,
+    );
+    // At and beyond 24h: the floor, exactly.
+    expect(liveNowFactor(LIVE_NOW_DECAY_H)).toBe(LIVE_NOW_FLOOR);
+    expect(liveNowFactor(LIVE_NOW_DECAY_H + 24)).toBe(LIVE_NOW_FLOOR);
+    // Monotone non-increasing across the whole band.
+    let prev = liveNowFactor(0);
+    for (let h = 0.25; h <= LIVE_NOW_DECAY_H; h += 0.25) {
+      const current = liveNowFactor(h);
+      expect(current).toBeLessThanOrEqual(prev);
+      prev = current;
+    }
+  });
+
+  it("boosts a beach with an any-audience signal within 2h, decays one with none in 24h", () => {
+    const base = {
+      conditions: { observedAt: hoursAgo(1), waveM: 0.3, crowdPct: 25 },
+    };
+    // A party sighting 1h ago still boosts the FAMILY leaderboard — live-now
+    // is audience-agnostic by design ("is this beach alive right now").
+    const boosted = computePulse(
+      {
+        ...base,
+        id: "x",
+        community: {
+          checkIns: [{ audience: "party", at: hoursAgo(1), kind: "check-in" }],
+        },
+      },
+      { audience: "family", now: NOW },
+    );
+    // Nothing newer than 25h: floor decay, even though the signal matches.
+    const decayed = computePulse(
+      {
+        ...base,
+        id: "x",
+        community: {
+          checkIns: [
+            { audience: "family", at: hoursAgo(25), kind: "check-in" },
+            { audience: "friends", at: hoursAgo(30), kind: "check-in" },
+          ],
+        },
+      },
+      { audience: "family", now: NOW },
+    );
+    // No community signals at all.
+    const silent = computePulse(
+      { ...base, id: "x" },
+      { audience: "family", now: NOW },
+    );
+
+    expect(boosted.breakdown.liveNow).toBeGreaterThanOrEqual(1.05);
+    expect(boosted.lastLiveSignalAgeH).toBeCloseTo(1, 10);
+    expect(decayed.breakdown.liveNow).toBeLessThanOrEqual(0.85);
+    expect(decayed.lastLiveSignalAgeH).toBeCloseTo(25, 10);
+    expect(silent.breakdown.liveNow).toBeLessThanOrEqual(0.85);
+    expect(silent.lastLiveSignalAgeH).toBeNull();
+    // Identical conditions: the boost is a real lift, the decay a real sink.
+    expect(boosted.score).toBeGreaterThan(silent.score);
+    expect(decayed.score).toBeLessThan(boosted.score);
+  });
+
+  it("uses the newest any-audience signal, distinct from the audience-matched one", () => {
+    const r = computePulse(
+      {
+        id: "x",
+        conditions: { observedAt: hoursAgo(1), waveM: 0.3, crowdPct: 25 },
+        community: {
+          checkIns: [
+            { audience: "family", at: hoursAgo(10), kind: "check-in" },
+            { audience: "party", at: hoursAgo(0.5), kind: "sighting" },
+          ],
+        },
+      },
+      { audience: "family", now: NOW },
+    );
+    // Audience-matched view: the family check-in is 10h old.
+    expect(r.lastSignalAgeH).toBeCloseTo(10, 10);
+    // Live-now view: the fresher party sighting keeps the beach boosted.
+    expect(r.lastLiveSignalAgeH).toBeCloseTo(0.5, 10);
+    expect(r.breakdown.liveNow).toBeGreaterThanOrEqual(1.05);
+  });
+
+  it("applies a uniform live-now boost across the fixture without flipping the pinned orderings", () => {
+    // Every fixture beach has an any-audience check-in within 2h, so the
+    // factor is a uniform 1.05 and the pinned family/party orderings above
+    // must still hold with the boost applied.
+    for (const beach of makeFixture()) {
+      const r = computePulse(beach, { audience: "family", now: NOW });
+      expect(r.breakdown.liveNow).toBe(LIVE_NOW_BOOST);
+    }
+    const familyIds = rankByPulse(makeFixture(), {
+      audience: "family",
+      now: NOW,
+    }).map((r) => r.id);
+    expect(familyIds).toEqual([
+      "cove",
+      "sunset",
+      "solitude",
+      "broadwalk",
+      "lido",
+    ]);
+  });
+});
+
+describe("per-audience top-3 (AC: family weighting differs from party weighting)", () => {
+  it("produces a different family top-3 than party top-3 on identical seed data", () => {
+    const fixture = makeFixture();
+    const familyTop3 = rankByPulse(fixture, {
+      audience: "family",
+      now: NOW,
+    })
+      .slice(0, 3)
+      .map((r) => r.id);
+    const partyTop3 = rankByPulse(fixture, { audience: "party", now: NOW })
+      .slice(0, 3)
+      .map((r) => r.id);
+    expect(familyTop3).not.toEqual(partyTop3);
+    // Each audience's own winner tops its leaderboard.
+    expect(familyTop3[0]).toBe("cove");
+    expect(partyTop3[0]).toBe("lido");
+  });
+
+  it("exposes all six audiences through PULSE_AUDIENCES in canonical chip order", () => {
+    expect(PULSE_AUDIENCES).toEqual([
+      "family",
+      "friends",
+      "solo",
+      "couples",
+      "party",
+      "chill",
+    ]);
   });
 });

@@ -79,6 +79,12 @@ export type PulseBreakdown = {
   freshness: number;
   /** Condition staleness multiplier, 0-1. */
   conditionFreshness: number;
+  /**
+   * Live-now multiplier applied to the blended score, 0.8-1.05. Boosted
+   * (>= 1.05) while any sighting or check-in is younger than 2h; decays to
+   * 0.8 once the newest signal is 24h old or older (or there are none).
+   */
+  liveNow: number;
 };
 
 export type PulseResult = {
@@ -91,6 +97,8 @@ export type PulseResult = {
   staleConditions: boolean;
   conditionAgeH: number | null;
   lastSignalAgeH: number | null;
+  /** Age (h) of the most recent sighting/check-in from ANY audience, null when none. */
+  lastLiveSignalAgeH: number | null;
   breakdown: PulseBreakdown;
 };
 
