@@ -80,6 +80,8 @@ export type Beach = {
   vibes: string[];
   activities?: string[];
   allowsNudism?: boolean;
+  /** ISO timestamp of the live-condition row the match score is based on. Missing means unverifiable (treated as stale). */
+  conditionsUpdatedAt?: string | null;
   latitude?: number;
   longitude?: number;
   travel?: { distanceKm: number; walkMinutes: number; driveMinutes: number };

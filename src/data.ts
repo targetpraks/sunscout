@@ -87,6 +87,14 @@ const hazardsBySlug: Record<string, HazardAlert[]> = {
   ],
 };
 
+/**
+ * Live-condition row timestamps, staggered so seed data exercises both sides
+ * of the pulse staleness contract (CONDITION_STALE_HOURS = 6): most beaches
+ * are fresh, praia-do-carvalho's row is over a day old and decays in ranking.
+ */
+const hoursAgo = (hours: number) =>
+  new Date(Date.now() - hours * 3_600_000).toISOString();
+
 const baseBeaches: Omit<
   Beach,
   | "image"
@@ -115,6 +123,9 @@ const baseBeaches: Omit<
     waterQuality: "Good",
     goldenHour: "19:42–20:24",
     vibes: ["Quiet", "White sand", "Calm water", "Scenic"],
+    activities: ["snorkeling", "walking", "beach_park"],
+    allowsNudism: false,
+    conditionsUpdatedAt: hoursAgo(0.2),
     suitability: [
       { id: "families", label: "Families", value: "Excellent", score: 3 },
       { id: "solo", label: "Solo", value: "Good", score: 2 },
@@ -141,6 +152,9 @@ const baseBeaches: Omit<
     waterQuality: "Good",
     goldenHour: "19:44–20:26",
     vibes: ["Romantic", "Scenic", "Small cove"],
+    activities: ["photography", "snorkeling", "walking"],
+    allowsNudism: false,
+    conditionsUpdatedAt: hoursAgo(2),
     suitability: [
       { id: "families", label: "Families", value: "Fair", score: 1 },
       { id: "solo", label: "Solo", value: "Good", score: 2 },
@@ -167,6 +181,9 @@ const baseBeaches: Omit<
     waterQuality: "Excellent",
     goldenHour: "19:41–20:23",
     vibes: ["Iconic", "Snorkeling", "Photography"],
+    activities: ["snorkeling", "photography", "walking"],
+    allowsNudism: false,
+    conditionsUpdatedAt: hoursAgo(1),
     suitability: [
       { id: "families", label: "Families", value: "Good", score: 2 },
       { id: "solo", label: "Solo", value: "Good", score: 2 },
@@ -193,6 +210,9 @@ const baseBeaches: Omit<
     waterQuality: "Good",
     goldenHour: "19:45–20:27",
     vibes: ["Family", "Long walks", "Accessible"],
+    activities: ["beach_park", "walking", "water_sports", "beach_club"],
+    allowsNudism: false,
+    conditionsUpdatedAt: hoursAgo(0.5),
     suitability: [
       { id: "families", label: "Families", value: "Excellent", score: 3 },
       { id: "solo", label: "Solo", value: "Good", score: 2 },
@@ -219,6 +239,9 @@ const baseBeaches: Omit<
     waterQuality: "Good",
     goldenHour: "19:42–20:24",
     vibes: ["Hidden gem", "Quiet", "Cliff cove"],
+    activities: ["chill", "photography", "nudist"],
+    allowsNudism: true,
+    conditionsUpdatedAt: hoursAgo(26),
     suitability: [
       { id: "families", label: "Families", value: "Fair", score: 1 },
       { id: "solo", label: "Solo", value: "Excellent", score: 3 },
@@ -245,6 +268,9 @@ const baseBeaches: Omit<
     waterQuality: "Good",
     goldenHour: "19:43–20:25",
     vibes: ["Party", "Beach clubs", "Social"],
+    activities: ["beach_club", "nightlife", "water_sports", "beach_park"],
+    allowsNudism: false,
+    conditionsUpdatedAt: hoursAgo(0.1),
     suitability: [
       { id: "families", label: "Families", value: "Good", score: 2 },
       { id: "solo", label: "Solo", value: "Excellent", score: 3 },
