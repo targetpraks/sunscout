@@ -272,6 +272,7 @@ Add unit and end-to-end coverage and complete mobile/desktop visual QA.
 - Provider-neutral beach condition schema.
 - Freshness and fallback states.
 - Stable event names and analytics properties.
+- Free public feed catalogue for provider adapters: `docs/DATA_SOURCES.md` (50 sources; coverage + licensing caveats).
 
 ### Platform
 
