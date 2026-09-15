@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { createBookingToken, newPublicId, verifyBookingToken } from "./tokens";
 import { computeAndStoreDayQuality, getDayQuality } from "./dayQuality";
 import { concierge } from "./concierge";
-import { computeRefund, computeSettlement } from "./billing";
+import { computeSettlement } from "./billing";
 import { captureException } from "./errorTracking";
+import { bookingsRouter } from "./bookings";
 import { createCheckoutSession, paymentsConfigured } from "./payments";
 import { dispatchPush, pushConfigured, pushPublicKey } from "./push";
 import cors from "cors";
@@ -1143,70 +1144,14 @@ app.post("/api/bookings", async (request, response) => {
   response.status(201).json({ data: booking });
 });
 
-app.post("/api/bookings/:bookingPublicId/cancel", async (request, response) => {
-  const outcome = await withTransaction(async (client) => {
-    const booking = await client.query<{
-      id: number;
-      merchant_id: number;
-      starts_at: Date;
-      status: string;
-      total_cents: number;
-    }>(
-      `select id, merchant_id, starts_at, status, total_cents
-       from booking where public_id = $1 and user_id = $2 for update`,
-      [request.params.bookingPublicId, request.userId],
-    );
-    if (!booking.rowCount) {
-      throw Object.assign(new Error("booking_not_found"), { status: 404 });
-    }
-    if (booking.rows[0].status !== "confirmed") {
-      throw Object.assign(new Error("booking_not_cancellable"), {
-        status: 409,
-      });
-    }
-    const refund = computeRefund(
-      booking.rows[0].total_cents,
-      booking.rows[0].starts_at,
-    );
-    await client.query(
-      `update booking set status = 'cancelled', updated_at = now() where id = $1`,
-      [booking.rows[0].id],
-    );
-    await client.query(
-      `update settlement set status = 'refunded', settled_at = now()
-       where booking_id = $1`,
-      [booking.rows[0].id],
-    );
-    const items = await client.query<{
-      inventory_id: number;
-      quantity: number;
-    }>(
-      "select inventory_id, quantity from booking_item where booking_id = $1",
-      [booking.rows[0].id],
-    );
-    for (const item of items.rows) {
-      await client.query(
-        `update amenity_inventory
-         set available_count = least(total_count, available_count + $1),
-             version = version + 1,
-             updated_at = now()
-         where id = $2`,
-        [item.quantity, item.inventory_id],
-      );
-    }
-    return refund;
-  });
-  await audit(
-    request.userId,
-    "booking_cancelled",
-    request.params.bookingPublicId,
-    {
-      tier: outcome.tier,
-      refundCents: outcome.refundCents,
-    },
-  );
-  response.json({ data: outcome });
-});
+// === BEGIN HOTSPOT (burst/sunscout-1-ship-booking-self-service-cancel): booking lifecycle router ===
+// Self-service cancel (POST /:bookingPublicId/cancel, full >24h / 50% 2-24h /
+// none <2h refund policy) and receipt (GET /:bookingPublicId/receipt).
+// Supersedes the former inline cancel handler (which used the older
+// 24h/0h billing policy). Owner scoping is inherited from the
+// app.use("/api/bookings", requireUser) middleware mounted earlier.
+app.use("/api/bookings", bookingsRouter);
+// === END HOTSPOT (burst/sunscout-1-ship-booking-self-service-cancel) ===
 
 const claimSchema = z.object({
   beachPublicId: z.string().uuid(),
