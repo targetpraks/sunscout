@@ -19,6 +19,7 @@
     "conditions:refresh": "tsx server/scripts/refreshConditions.ts",
     "test:api": "tsx server/scripts/smoke.ts",
     "test": "vitest run",
+    "verify": "npm run typecheck && npm test && npm run build",
     "test:watch": "vitest",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
