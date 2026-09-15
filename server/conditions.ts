@@ -1,4 +1,13 @@
 import type { Pool, PoolClient } from "pg";
+import type { Request, Response } from "express";
+import {
+  computeDayScore,
+  isDayScoreAudience,
+  loadBaselineCrowd,
+  loadPulseInput,
+  type DayScore,
+} from "./dayQuality";
+import { listBeachEvents } from "./events";
 import { openMeteoProvider } from "./providers/openMeteo";
 import { mockedTideProvider } from "./providers/tide";
 import type { TideProvider } from "./providers/tide";
@@ -28,6 +37,119 @@ export type RefreshResult = {
 };
 
 const defaultCacheMinutes = 10;
+
+// ---------------------------------------------------------------------------
+// GET /api/conditions — Day Score service + handler (additive dayScore)
+// ---------------------------------------------------------------------------
+
+type BeachIdRow = {
+  id: number;
+  public_id: string;
+  timezone: string;
+};
+
+/** Resolve the beach's numeric id, public id and timezone from its slug. */
+async function resolveBeachBySlug(
+  db: Queryable,
+  slug: string,
+): Promise<BeachIdRow | null> {
+  const result = await db.query<BeachIdRow>(
+    `select id, public_id::text, timezone from beach where slug = $1`,
+    [slug],
+  );
+  return result.rows[0] ?? null;
+}
+
+/** Beach UTC offsets for the seeded timezones; unknown zones bucket as UTC. */
+const UTC_OFFSETS: Record<string, number> = {
+  "Europe/Lisbon": 0,
+  "Atlantic/Madeira": 0,
+  "Africa/Johannesburg": 2,
+  "Africa/Cape_Town": 2,
+  UTC: 0,
+};
+
+function utcOffsetForBeach(timezone: string): number {
+  return UTC_OFFSETS[timezone] ?? 0;
+}
+
+export type DayScoreServiceOptions = {
+  audience?: string;
+  now?: Date;
+  /** Injected clock — defaults to the current time in the handler only. */
+};
+
+/**
+ * Build the additive dayScore payload for one beach slug. Takes an injected
+ * `Queryable` so tests run without Postgres. Returns null (never throws)
+ * when the beach is unknown or the DB fails — an honest "no score" state
+ * that keeps the existing /api/conditions fields untouched.
+ */
+export async function getDayScoreForBeach(
+  db: Queryable,
+  slug: string,
+  options: DayScoreServiceOptions = {},
+): Promise<DayScore | null> {
+  let beach: BeachIdRow | null;
+  try {
+    beach = await resolveBeachBySlug(db, slug);
+  } catch {
+    return null;
+  }
+  if (!beach) return null;
+
+  const audience = options.audience ?? "family";
+  const safeAudience = isDayScoreAudience(audience) ? audience : "family";
+  const now = options.now ?? new Date();
+  const offset = utcOffsetForBeach(beach.timezone);
+
+  try {
+    const [pulseInput, baselineCrowd, events] = await Promise.all([
+      loadPulseInput(db, beach.id, beach.public_id),
+      loadBaselineCrowd(db, beach.id),
+      listBeachEvents(db, beach.public_id),
+    ]);
+    return computeDayScore(pulseInput, {
+      audience: safeAudience,
+      now,
+      baselineCrowd,
+      events,
+      forecastStartHour: (now.getUTCHours() + offset + 24) % 24,
+      forecastCount: 6,
+      forecastUtcOffsetHours: offset,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Express handler factory for GET /api/conditions. Closed over the real
+ * pool in production; tests inject a stub `db` and fake req/res.
+ */
+export function getConditionsHandler(db: Queryable) {
+  return async (request: Request, response: Response) => {
+    const slug = String(request.query.slug ?? "").trim();
+    if (!slug) {
+      response.status(400).json({ error: "slug_required" });
+      return;
+    }
+    const beach = await resolveBeachBySlug(db, slug);
+    if (!beach) {
+      response.status(404).json({ error: "beach_not_found" });
+      return;
+    }
+    const dayScore = await getDayScoreForBeach(db, slug, {
+      audience: String(request.query.audience ?? "family"),
+    });
+    response.json({
+      data: {
+        slug,
+        dayScore,
+      },
+    });
+  };
+}
 
 const pad = (n: number) => String((n + 24) % 24).padStart(2, "0");
 
