@@ -105,6 +105,7 @@ import { AccuracyPanel } from "./accuracy/AccuracyPanel";
 import { beaches as fallbackBeaches, tideData } from "./data";
 import PulseLeaderboardScreen from "./pulse/PulseLeaderboardScreen";
 import { BeachCommunitySection } from "./community/BeachCommunitySection";
+import { SightingsSection } from "./sightings/SightingsSection";
 import { BookingsRouteView } from "./bookings/routes";
 import {
   ACTIVITY_OPTIONS,
@@ -1565,6 +1566,7 @@ function BeachDetail({
           </div>
           <BeachCommunitySection beachId={beach.id} beach={beach} />
         </section>
+        <SightingsSection beachId={beach.id} />
         <AccuracyPanel beachId={beach.slug ?? beach.id} />
         <PhotoGallery beach={beach} />
         <HazardList beach={beach} />
