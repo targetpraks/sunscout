@@ -1,3 +1,5 @@
+import { rankByPulse } from "./pulse/scoring";
+import type { PulseAudience, PulseInput, PulseRankedItem } from "./pulse/types";
 import type {
   Beach,
   Booking,
@@ -527,6 +529,75 @@ export async function contributeSpotter(slug: string, amountCents: number) {
   return apiRequest<{ data: { raised_cents: number; status: string } }>(
     `/beaches/${encodeURIComponent(slug)}/spotter-campaign/contribute`,
     { method: "POST", body: JSON.stringify({ amountCents }) },
+  );
+}
+
+// === Beach Pulse (client-side ranking) ===
+//
+// The server exposes no pulse endpoint yet, so the leaderboard is computed
+// client-side from the beach catalog through the pulse scoring core. The
+// beach payload carries no community signals, so the scorer's documented
+// defaults apply: missing vibe/accuracy fall back to the neutral default and
+// a beach with no audience-matching check-ins contributes zero community
+// score — conditions drive the ordering, per-audience weights decide it.
+// The audience list itself lives in ./routes (the pure-data registry).
+
+/**
+ * Parse the leading number out of a display string ("19°C", "6 High", "8 km/h").
+ * Null when absent or unparseable — never NaN, which would poison the scorer.
+ */
+function parseDisplayNumber(value: string | null | undefined): number | null {
+  if (value == null) return null;
+  const match = /-?\d+(?:\.\d+)?/.exec(value);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Map one Beach row (display strings) onto a PulseInput condition snapshot.
+ * Unparseable signals stay null so the scorer's documented defaults apply.
+ */
+export function beachToPulseInput(beach: Beach): PulseInput {
+  return {
+    id: beach.id,
+    name: beach.name,
+    conditions: {
+      observedAt: beach.provenance?.observedAt ?? "",
+      waveM: parseDisplayNumber(beach.waves),
+      windKmh: parseDisplayNumber(beach.windSpeed),
+      waterTempC: parseDisplayNumber(beach.seaTemp),
+      airTempC: parseDisplayNumber(beach.airTemp),
+      uvIndex: parseDisplayNumber(beach.uv),
+      crowdPct: Number.isFinite(beach.crowd) ? beach.crowd : null,
+      cloudPct: parseDisplayNumber(beach.cloudCover),
+    },
+  };
+}
+
+/**
+ * Rank the beach catalog for one audience — the Pulse leaderboard feed.
+ * Pure: deterministic for a fixed (beaches, audience, now).
+ */
+export function rankBeachesByPulse(
+  beaches: Beach[],
+  audience: PulseAudience,
+  now: Date,
+): PulseRankedItem[] {
+  const byId = new Map(
+    beaches.map((beach) => [
+      beach.id,
+      { name: beach.name, region: beach.location },
+    ]),
+  );
+  return rankByPulse(beaches.map(beachToPulseInput), { audience, now }).map(
+    (result) => ({
+      id: result.id,
+      name: byId.get(result.id)?.name ?? result.id,
+      region: byId.get(result.id)?.region,
+      score: result.score,
+      staleConditions: result.staleConditions,
+    }),
   );
 }
 
