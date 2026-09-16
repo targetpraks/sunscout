@@ -105,6 +105,7 @@ import { AccuracyPanel } from "./accuracy/AccuracyPanel";
 import { beaches as fallbackBeaches, tideData } from "./data";
 import PulseLeaderboardScreen from "./pulse/PulseLeaderboardScreen";
 import { BeachCommunitySection } from "./community/BeachCommunitySection";
+import { BookingsRouteView } from "./bookings/routes";
 import {
   ACTIVITY_OPTIONS,
   AUDIENCE_OPTIONS,
@@ -479,6 +480,7 @@ function TodayScreen({
   onCancelBooking,
   onOpenGoldenHour,
   onOpenPulse,
+  onOpenBookings,
   onToast,
 }: {
   beach: Beach;
@@ -491,6 +493,7 @@ function TodayScreen({
   onCancelBooking: () => void;
   onOpenGoldenHour: () => void;
   onOpenPulse: () => void;
+  onOpenBookings: () => void;
   onToast: (message: string) => void;
 }) {
   const [tideExpanded, setTideExpanded] = useState(false);
@@ -573,6 +576,12 @@ function TodayScreen({
                 : `${beach.available.sunbeds} sunbeds available today`
             }
             onClick={onOpenBooking}
+          />
+          <ActionRow
+            icon={Ticket}
+            title="My bookings"
+            subtitle="Upcoming + past reservations · cancel with refund preview · receipts"
+            onClick={onOpenBookings}
           />
           {booking ? (
             <button
@@ -3760,6 +3769,7 @@ export function App() {
   const [opsOpen, setOpsOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
   const [pulseOpen, setPulseOpen] = useState(false);
+  const [bookingsOpen, setBookingsOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [premiumOpen, setPremiumOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -3928,6 +3938,13 @@ export function App() {
         />
       </div>
     );
+  } else if (bookingsOpen) {
+    screen = (
+      <BookingsRouteView
+        onBack={() => setBookingsOpen(false)}
+        onToast={showToast}
+      />
+    );
   } else if (opsOpen) {
     screen = <OpsScreen onBack={() => setOpsOpen(false)} />;
   } else if (institutionOpen) {
@@ -3991,6 +4008,7 @@ export function App() {
         }}
         onOpenGoldenHour={() => setGoldenHourBeach(homeBeach)}
         onOpenPulse={() => setPulseOpen(true)}
+        onOpenBookings={() => setBookingsOpen(true)}
         onToast={showToast}
       />
     );
