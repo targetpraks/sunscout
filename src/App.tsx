@@ -550,6 +550,7 @@ function TodayScreen({
             points={beach.tide?.points?.length ? beach.tide.points : tideData}
             expanded={tideExpanded}
             onToggle={() => setTideExpanded((current) => !current)}
+            slug={beach.slug}
           />
         </Suspense>
         <div className="action-list">
@@ -1506,6 +1507,7 @@ function BeachDetail({
             points={beach.tide?.points?.length ? beach.tide.points : tideData}
             expanded={tideExpanded}
             onToggle={() => setTideExpanded((current) => !current)}
+            slug={beach.slug}
           />
         </Suspense>
         <div className="action-list">
