@@ -15,6 +15,12 @@
  *   GET  /api/coordinator/events        coordinator: own events
  *   POST /api/beach-events/:id/publish  coordinator: publish
  *   POST /api/beach-events/:id/cancel   coordinator: cancel
+ *   GET  /api/ads                       active sponsored placements for a beach
+ *   GET  /api/ads/takeover              the active brand takeover for a beach + surface
+ *
+ * The /api/ads prefix collides with none of the index.ts-owned prefixes
+ * (/api/events, /api/me, /api/check-ins, /api/bookings, /api/conditions,
+ * /api/merchant) and with no beachesRouter path.
  */
 import { Router } from "express";
 import type { Request, Response, NextFunction } from "express";
@@ -22,6 +28,7 @@ import { z } from "zod";
 
 import { requireUser } from "./auth";
 import { pool } from "./db";
+import { createAdsRouter } from "./ads";
 import {
   createSighting,
   parseSightingRecord,
@@ -523,3 +530,13 @@ pillarsRouter.post(
   requireUser,
   coordinatorTransition(cancelEvent),
 );
+
+// ---------------------------------------------------------------- ads
+//
+// Brand takeover engine (Pillar 7, 2026-06-24 advertising direction).
+// createAdsRouter was previously unreachable: beaches.ts re-exports it for a
+// mount that server/index.ts never performs. Mounted here so the placement
+// list and the scope-aware takeover resolver are actually reachable — the
+// /api/ads prefix collides with no index.ts-owned prefix and no beachesRouter
+// path (see the route-ownership note at the top of this file).
+pillarsRouter.use("/api/ads", createAdsRouter(pool));

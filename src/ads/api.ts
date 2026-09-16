@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { SponsoredPlacement } from "./types";
+import type { AdSurface, SponsoredPlacement, SponsoredTakeover } from "./types";
 
 const apiBase = import.meta.env.VITE_API_URL ?? "/api";
 
@@ -23,6 +23,22 @@ export async function fetchActivePlacements(
 ): Promise<SponsoredPlacement[]> {
   const body = await apiRequest<{ data: SponsoredPlacement[] }>(
     `/ads?beachId=${encodeURIComponent(beachPublicId)}`,
+  );
+  return body.data;
+}
+
+/**
+ * The active brand takeover for one beach + contextual surface, or null.
+ * Server-side scope ladder: beach beats island beats region; only windows
+ * containing now are served. Public consumer surface, same as placements.
+ */
+export async function fetchActiveTakeover(
+  beachPublicId: string,
+  surface: AdSurface,
+): Promise<SponsoredTakeover | null> {
+  const body = await apiRequest<{ data: SponsoredTakeover | null }>(
+    `/ads/takeover?beachId=${encodeURIComponent(beachPublicId)}` +
+      `&surface=${encodeURIComponent(surface)}`,
   );
   return body.data;
 }
@@ -73,6 +89,59 @@ export function useActivePlacements(
       cancelled = true;
     };
   }, [beachPublicId, refreshKey]);
+
+  return state;
+}
+
+export type ActiveTakeoverState = {
+  takeover: SponsoredTakeover | null;
+  loading: boolean;
+  error: string | null;
+};
+
+/**
+ * Fetches the active brand takeover for one beach + contextual surface.
+ * Mirrors useActivePlacements: null beach id resolves without a request, and
+ * an error never surfaces a takeover — paid inventory is never shown on a
+ * failed read.
+ */
+export function useActiveTakeover(
+  beachPublicId: string | null,
+  surface: AdSurface,
+  refreshKey = 0,
+): ActiveTakeoverState {
+  const [state, setState] = useState<ActiveTakeoverState>({
+    takeover: null,
+    loading: beachPublicId != null,
+    error: null,
+  });
+
+  useEffect(() => {
+    if (beachPublicId == null) {
+      setState({ takeover: null, loading: false, error: null });
+      return;
+    }
+    let cancelled = false;
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+    fetchActiveTakeover(beachPublicId, surface)
+      .then((takeover) => {
+        if (!cancelled) {
+          setState({ takeover, loading: false, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setState({
+            takeover: null,
+            loading: false,
+            error: error instanceof Error ? error.message : "ads_unavailable",
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [beachPublicId, surface, refreshKey]);
 
   return state;
 }

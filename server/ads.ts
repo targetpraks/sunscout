@@ -150,9 +150,208 @@ export async function listActivePlacements(
   return activePlacementsAt(result.rows.map(serializePlacement), now);
 }
 
+// ---------------------------------------------------------------- takeovers
+
 /**
- * GET /  → list of active placements for ?beachId=<beachPublicId>[&at=iso].
- * Mounted under /ads (public — sponsorships are consumer-visible, clearly
+ * Contextual surfaces a brand takeover can own (2026-06-24 advertising
+ * direction): conditions=sunblock, sightings=swimwear, golden-hour=watch,
+ * beach-detail=beach club. Kebab-case ids, matching the events convention.
+ */
+export const AD_SURFACES = [
+  "conditions",
+  "sightings",
+  "golden-hour",
+  "beach-detail",
+] as const;
+
+export type AdSurface = (typeof AD_SURFACES)[number];
+
+export const AD_SURFACE_LABELS: Record<AdSurface, string> = {
+  conditions: "Conditions",
+  sightings: "Sightings",
+  "golden-hour": "Golden Hour",
+  "beach-detail": "Beach Detail",
+};
+
+/** Scope ladder: a beach takeover beats an island takeover beats a region. */
+export const TAKEOVER_SCOPE_KINDS = ["beach", "island", "region"] as const;
+
+export type TakeoverScopeKind = (typeof TAKEOVER_SCOPE_KINDS)[number];
+
+/**
+ * A resolved takeover, structurally compatible with SponsoredPlacement so the
+ * existing SponsoredRail/SponsoredSlot render it unchanged — plus the
+ * takeover-specific surface and scope. beachPublicId is the beach the
+ * takeover was resolved FOR (a region/island takeover has no single beach id
+ * of its own).
+ */
+export type SponsoredTakeover = SponsoredPlacement & {
+  surface: AdSurface;
+  scopeKind: TakeoverScopeKind;
+};
+
+const TAKEOVER_SCOPE_PRIORITY: Record<TakeoverScopeKind, number> = {
+  beach: 0,
+  island: 1,
+  region: 2,
+};
+
+/**
+ * Pure takeover resolution: window filter + surface match + scope ladder
+ * (beach > island > region), tie-broken by weight desc then start asc. The
+ * SQL in resolveTakeover narrows by surface/window/scope as a performance
+ * filter; this re-applies the same rules as the drift-checked invariant —
+ * the exact pattern activePlacementsAt uses for placements. Never reads or
+ * mutates any ranking signal.
+ */
+export function resolveActiveTakeover(
+  takeovers: SponsoredTakeover[],
+  options: { surface: AdSurface; now: Date },
+): SponsoredTakeover | null {
+  const ref = options.now.getTime();
+  const active = takeovers.filter((takeover) => {
+    if (takeover.surface !== options.surface) return false;
+    const start = new Date(takeover.startsAt).getTime();
+    const end = new Date(takeover.endsAt).getTime();
+    return start <= ref && ref < end;
+  });
+  if (active.length === 0) return null;
+  active.sort((a, b) => {
+    const scope =
+      TAKEOVER_SCOPE_PRIORITY[a.scopeKind] -
+      TAKEOVER_SCOPE_PRIORITY[b.scopeKind];
+    if (scope !== 0) return scope;
+    if (b.weight !== a.weight) return b.weight - a.weight;
+    return new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime();
+  });
+  return active[0] ?? null;
+}
+
+type AdTakeoverRow = {
+  id: number;
+  public_id: string;
+  surface: AdSurface;
+  scope_kind: TakeoverScopeKind;
+  scope_beach_public_id: string | null;
+  scope_island: string | null;
+  scope_min_lat: string | null;
+  scope_max_lat: string | null;
+  scope_min_lng: string | null;
+  scope_max_lng: string | null;
+  brand_name: string;
+  label: string;
+  headline: string | null;
+  body: string | null;
+  image_url: string | null;
+  target_url: string | null;
+  weight: number;
+  sponsored: boolean;
+  start_at: Date;
+  end_at: Date;
+};
+
+function serializeTakeover(
+  row: AdTakeoverRow,
+  beachPublicId: string,
+): SponsoredTakeover {
+  return {
+    id: row.id,
+    publicId: row.public_id,
+    // The beach surface this takeover was resolved for — a region or island
+    // takeover owns no single beach, so this is the request's id, not the row's.
+    beachPublicId,
+    // Every takeover is a scoped beach takeover from the consumer's point of
+    // view; the SponsoredSlot kind label reflects that.
+    kind: "beach_takeover",
+    brandName: row.brand_name,
+    label: row.label,
+    headline: row.headline,
+    body: row.body,
+    imageUrl: row.image_url,
+    targetUrl: row.target_url,
+    eventPublicId: null,
+    weight: row.weight,
+    // Forced literal, never read from the row — same rule as placements.
+    sponsored: true,
+    startsAt: new Date(row.start_at).toISOString(),
+    endsAt: new Date(row.end_at).toISOString(),
+    surface: row.surface,
+    scopeKind: row.scope_kind,
+  };
+}
+
+/**
+ * The active takeover for one beach + contextual surface, or null. Beach
+ * scope matches the exact beach; island scope matches the beach's
+ * island_code; region scope matches a bounding box containing the beach's
+ * coordinates. An unknown beach resolves to null — advertising is never a
+ * beach-existence oracle.
+ */
+export async function resolveTakeover(
+  db: AdsDb,
+  options: {
+    beachPublicId: string;
+    surface: AdSurface;
+    now?: Date;
+  },
+): Promise<SponsoredTakeover | null> {
+  const now = options.now ?? new Date();
+  const beach = await db.query<{
+    island_code: string | null;
+    latitude: string;
+    longitude: string;
+  }>(
+    `select island_code, latitude, longitude
+       from beach
+      where public_id = $1`,
+    [options.beachPublicId],
+  );
+  if (!beach.rowCount) return null;
+  const target = beach.rows[0];
+  const result = await db.query<AdTakeoverRow>(
+    `select id, public_id, surface, scope_kind, scope_beach_public_id,
+            scope_island, scope_min_lat, scope_max_lat, scope_min_lng,
+            scope_max_lng, brand_name, label, headline, body, image_url,
+            target_url, weight, sponsored, start_at, end_at
+       from ad_takeover
+      where surface = $1
+        and start_at <= $2
+        and end_at > $2
+        and (
+          (scope_kind = 'beach' and scope_beach_public_id = $3)
+          or (scope_kind = 'island' and $4::text is not null and scope_island = $4)
+          or (scope_kind = 'region'
+              and scope_min_lat <= $5::numeric and $5::numeric <= scope_max_lat
+              and scope_min_lng <= $6::numeric and $6::numeric <= scope_max_lng)
+        )`,
+    [
+      options.surface,
+      now,
+      options.beachPublicId,
+      target.island_code,
+      target.latitude,
+      target.longitude,
+    ],
+  );
+  return resolveActiveTakeover(
+    result.rows.map((row) => serializeTakeover(row, options.beachPublicId)),
+    { surface: options.surface, now },
+  );
+}
+
+export const takeoverQuerySchema = z.object({
+  beachId: z.string().uuid(),
+  surface: z.enum(AD_SURFACES),
+  at: z.coerce.date().optional(),
+});
+
+export type TakeoverQuery = z.infer<typeof takeoverQuerySchema>;
+
+/**
+ * GET /          → list of active placements for ?beachId=<beachPublicId>[&at=iso].
+ * GET /takeover  → the single active takeover for ?beachId=&surface=[&at=].
+ *
+ * Mounted under /api/ads (public — sponsorships are consumer-visible, clearly
  * labeled paid inventory, not user-private data). Parse errors surface as
  * 400 invalid_request; data-layer errors propagate to the app error handler.
  */
@@ -178,6 +377,31 @@ export function createAdsRouter(db: AdsDb): express.Router {
         now: input.at ?? new Date(),
       });
       response.json({ data: placements });
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.get("/takeover", async (request, response, next) => {
+    let input: TakeoverQuery;
+    try {
+      input = takeoverQuerySchema.parse(request.query);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        response
+          .status(400)
+          .json({ error: "invalid_request", issues: error.issues });
+        return;
+      }
+      next(error);
+      return;
+    }
+    try {
+      const takeover = await resolveTakeover(db, {
+        beachPublicId: input.beachId,
+        surface: input.surface,
+        now: input.at ?? new Date(),
+      });
+      response.json({ data: takeover });
     } catch (error) {
       next(error);
     }

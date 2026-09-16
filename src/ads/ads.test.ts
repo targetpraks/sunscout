@@ -1,15 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { fetchActivePlacements } from "./api";
+import { fetchActivePlacements, fetchActiveTakeover } from "./api";
 import { SponsoredRailView } from "./SponsoredRail";
 import { SponsoredSlot } from "./SponsoredSlot";
 import {
   activePlacementsAt,
   AD_KIND_LABELS,
   AD_PLACEMENT_KINDS,
+  AD_SURFACES,
+  AD_SURFACE_LABELS,
   SPONSORED_LABEL,
   type SponsoredPlacement,
+  type SponsoredTakeover,
 } from "./types";
 
 const NOW = new Date("2026-06-15T12:00:00Z");
@@ -46,6 +49,13 @@ describe("labels", () => {
   it("labels every placement kind", () => {
     for (const kind of AD_PLACEMENT_KINDS) {
       expect(AD_KIND_LABELS[kind].length).toBeGreaterThan(0);
+    }
+  });
+
+  it("pins the four contextual takeover surfaces and their labels", () => {
+    expect(AD_SURFACES).toHaveLength(4);
+    for (const surface of AD_SURFACES) {
+      expect(AD_SURFACE_LABELS[surface].length).toBeGreaterThan(0);
     }
   });
 });
@@ -185,6 +195,74 @@ describe("fetchActivePlacements", () => {
   });
 });
 
+describe("fetchActiveTakeover", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function makeTakeover(
+    overrides: Partial<SponsoredTakeover> = {},
+  ): SponsoredTakeover {
+    return {
+      ...makePlacement({ kind: "beach_takeover" }),
+      surface: "conditions",
+      scopeKind: "island",
+      ...overrides,
+    };
+  }
+
+  it("requests the takeover endpoint for the beach + surface and unwraps data", async () => {
+    const takeover = makeTakeover({ brandName: "Solara Sunblock" });
+    const fetchMock = vi.fn(
+      async (_url: RequestInfo | URL, _init?: RequestInit) =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({ data: takeover }),
+        }) as unknown as Response,
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const resolved = await fetchActiveTakeover(BEACH_ID, "conditions");
+    expect(resolved).not.toBeNull();
+    expect(resolved?.brandName).toBe("Solara Sunblock");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      `/ads/takeover?beachId=${BEACH_ID}&surface=conditions`,
+    );
+  });
+
+  it("resolves data:null to null (no takeover live)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: async () => ({ data: null }),
+          }) as unknown as Response,
+      ),
+    );
+    expect(await fetchActiveTakeover(BEACH_ID, "golden-hour")).toBeNull();
+  });
+
+  it("propagates the server error message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: false,
+            status: 400,
+            json: async () => ({ error: "invalid_request" }),
+          }) as unknown as Response,
+      ),
+    );
+    await expect(fetchActiveTakeover(BEACH_ID, "conditions")).rejects.toThrow(
+      "invalid_request",
+    );
+  });
+});
+
 describe("SponsoredSlot (static render)", () => {
   it("always renders the Sponsored disclosure, brand and kind", () => {
     const markup = renderToStaticMarkup(
@@ -225,6 +303,49 @@ describe("SponsoredSlot (static render)", () => {
     );
     expect(markup).not.toContain("<h");
     expect(markup).not.toContain("Learn more");
+  });
+
+  it("renders a resolved brand takeover with the Sponsored disclosure, brand and scope-kind label", () => {
+    // A takeover is structurally a SponsoredPlacement, so it must render
+    // through the same labeled slot — paid inventory, never organic.
+    const takeover: SponsoredTakeover = {
+      ...makePlacement({
+        kind: "beach_takeover",
+        brandName: "Meridian Watches",
+      }),
+      surface: "golden-hour",
+      scopeKind: "island",
+    };
+    const markup = renderToStaticMarkup(
+      createElement(SponsoredSlot, { placement: takeover }),
+    );
+    expect(markup).toContain("Sponsored");
+    expect(markup).toContain("Meridian Watches");
+    expect(markup).toContain("Beach takeover");
+  });
+
+  it("renders a takeover in the rail without entering organic ordering", () => {
+    // The rail is the ONLY client surface that consumes ads; organic Pulse
+    // ordering reads only earned signals. This test proves the takeover
+    // renders through the rail's Sponsored-only list.
+    const takeover: SponsoredTakeover = {
+      ...makePlacement({
+        kind: "beach_takeover",
+        brandName: "Meridian Watches",
+      }),
+      surface: "golden-hour",
+      scopeKind: "island",
+    };
+    const markup = renderToStaticMarkup(
+      createElement(SponsoredRailView, {
+        beachName: "Praia Test",
+        placements: [takeover],
+        now: NOW,
+      }),
+    );
+    expect(markup).toContain("Sponsored");
+    expect(markup).toContain("Meridian Watches");
+    expect(markup).toContain('rel="sponsored noopener noreferrer"');
   });
 });
 

@@ -45,6 +45,43 @@ export type SponsoredPlacement = {
   endsAt: string;
 };
 
+/**
+ * Contextual surfaces a brand takeover can own (2026-06-24 advertising
+ * direction): conditions=sunblock, sightings=swimwear, golden-hour=watch,
+ * beach-detail=beach club. Deliberate mirror of server/ads.ts.
+ */
+export const AD_SURFACES = [
+  "conditions",
+  "sightings",
+  "golden-hour",
+  "beach-detail",
+] as const;
+
+export type AdSurface = (typeof AD_SURFACES)[number];
+
+export const AD_SURFACE_LABELS: Record<AdSurface, string> = {
+  conditions: "Conditions",
+  sightings: "Sightings",
+  "golden-hour": "Golden Hour",
+  "beach-detail": "Beach Detail",
+};
+
+/** Scope ladder: a beach takeover beats an island takeover beats a region. */
+export const TAKEOVER_SCOPE_KINDS = ["beach", "island", "region"] as const;
+
+export type TakeoverScopeKind = (typeof TAKEOVER_SCOPE_KINDS)[number];
+
+/**
+ * A resolved brand takeover. Structurally a SponsoredPlacement (plus the
+ * surface/scope it was resolved on) so SponsoredRail/SponsoredSlot render it
+ * through the same labeled slot — it never enters organic ordering, which
+ * only consumes earned signals.
+ */
+export type SponsoredTakeover = SponsoredPlacement & {
+  surface: AdSurface;
+  scopeKind: TakeoverScopeKind;
+};
+
 const KIND_PRIORITY: Record<AdPlacementKind, number> = {
   beach_takeover: 0,
   event_takeover: 1,
