@@ -12,6 +12,10 @@ import { useEffect, useState } from "react";
 import { tideData } from "./data";
 import { CrowdForecastStrip } from "./dayOutlook/CrowdForecastStrip";
 import { DayScoreCard } from "./dayOutlook/DayScoreCard";
+import {
+  BeachDayGuideCard,
+  type DayGuideConditions,
+} from "./dayOutlook/BeachDayGuideCard";
 import type { DayScore } from "./dayOutlook/types";
 import { daytimeLowest, tideExtrema } from "./tide";
 import type { TidePoint } from "./types";
@@ -49,6 +53,7 @@ export function TidePanel({
   expanded,
   onToggle,
   slug,
+  guideConditions,
 }: {
   points: TidePoint[];
   expanded: boolean;
@@ -59,6 +64,11 @@ export function TidePanel({
    * call sites keep working; the beach-detail integrator passes it.
    */
   slug?: string;
+  /**
+   * Live-condition inputs for the Beach Day Guide card. Optional so
+   * existing call sites keep working; the shell passes the beach row.
+   */
+  guideConditions?: DayGuideConditions;
 }) {
   const reduceMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
@@ -94,6 +104,9 @@ export function TidePanel({
   return (
     <>
       {slug && dayScore ? <DayScoreCard dayScore={dayScore} /> : null}
+      {slug && dayScore ? (
+        <BeachDayGuideCard dayScore={dayScore} conditions={guideConditions} />
+      ) : null}
       <section className={`tide-panel ${expanded ? "expanded" : ""}`}>
         <button className="section-heading tide-heading" onClick={onToggle}>
           <span className="heading-group">

@@ -552,6 +552,11 @@ function TodayScreen({
             expanded={tideExpanded}
             onToggle={() => setTideExpanded((current) => !current)}
             slug={beach.slug}
+            guideConditions={{
+              goldenHour: beach.goldenHour,
+              airTemp: beach.airTemp,
+              waterQuality: beach.waterQuality,
+            }}
           />
         </Suspense>
         <div className="action-list">
@@ -1509,6 +1514,11 @@ function BeachDetail({
             expanded={tideExpanded}
             onToggle={() => setTideExpanded((current) => !current)}
             slug={beach.slug}
+            guideConditions={{
+              goldenHour: beach.goldenHour,
+              airTemp: beach.airTemp,
+              waterQuality: beach.waterQuality,
+            }}
           />
         </Suspense>
         <div className="action-list">
