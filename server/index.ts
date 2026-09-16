@@ -26,7 +26,7 @@ import {
   getUserPoints,
 } from "./badges";
 import { listBeaches } from "./beaches";
-import { refreshConditions } from "./conditions";
+import { refreshConditions, getConditionsHandler } from "./conditions";
 import { pool, withTransaction } from "./db";
 import { migrate } from "./migrate";
 
@@ -208,6 +208,12 @@ app.use("/api/check-ins", requireUser);
 app.use("/api/bookings", requireUser);
 app.use("/api/events", requireUser);
 app.use("/api/conditions", requireUser);
+
+// GET /api/conditions?slug=&audience= — additive Day Score payload (PR #10).
+// Mounted inside the requireUser scope above: TidePanel sends the user
+// header; without this mount the DayScoreCard would 404 silently.
+app.get("/api/conditions", getConditionsHandler(pool));
+
 app.use("/api/merchant", requireUser);
 
 app.post("/api/conditions/refresh", async (request, response) => {
