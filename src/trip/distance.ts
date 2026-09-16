@@ -8,13 +8,21 @@ import type {
 } from "./types";
 
 const EARTH_RADIUS_KM = 6371;
-/** Average walking speed in km/h — mirrors travelFor() in src/logic.ts. */
-const WALK_SPEED_KMH = 4.5;
-/** Kilometres per driving minute — mirrors server/providers/mapping.ts. */
-const DRIVE_KM_PER_MINUTE = 0.55;
-/** Minimum driving time in minutes — mirrors server/providers/mapping.ts. */
+/**
+ * Average walking speed in km/h — the locked trip-planner direction
+ * (2026-06-22) specifies ~5 km/h. Deliberately diverges from travelFor() in
+ * src/logic.ts (4.5 km/h), which keeps its own model so discovery and
+ * logic.test.ts stay unchanged.
+ */
+const WALK_SPEED_KMH = 5;
+/**
+ * Average driving speed in km/h — the locked trip-planner direction
+ * specifies ~40 km/h. Deliberately diverges from server/providers/mapping.ts
+ * (~33 km/h) for the same reason.
+ */
+const DRIVE_SPEED_KMH = 40;
+/** Minimum driving time in minutes — parking/access overhead on short hops. */
 const MIN_DRIVE_MINUTES = 5;
-
 const toRad = (deg: number) => (deg * Math.PI) / 180;
 
 /**
@@ -54,9 +62,29 @@ export function travelEstimates(distanceKm: number): TravelEstimates {
     driveDistanceKm: rounded,
     driveMinutes: Math.max(
       MIN_DRIVE_MINUTES,
-      Math.round(distanceKm / DRIVE_KM_PER_MINUTE),
+      Math.round((distanceKm / DRIVE_SPEED_KMH) * 60),
     ),
   };
+}
+
+/**
+ * Parse a typed "lat, lng" string (comma or whitespace separated) into a
+ * planner origin. Returns null when the input is not a valid coordinate
+ * pair so callers can surface a validation message instead of guessing.
+ */
+export function parseCoordinates(
+  input: string,
+): { latitude: number; longitude: number } | null {
+  const tokens = input
+    .trim()
+    .split(/[,\s]+/)
+    .filter(Boolean);
+  if (tokens.length !== 2) return null;
+  const [latitude, longitude] = tokens.map((token) => Number.parseFloat(token));
+  if (Number.isNaN(latitude) || Number.isNaN(longitude)) return null;
+  if (latitude < -90 || latitude > 90) return null;
+  if (longitude < -180 || longitude > 180) return null;
+  return { latitude, longitude };
 }
 
 export const PLANNER_AUDIENCES: Array<{

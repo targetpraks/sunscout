@@ -1,17 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowLeft,
-  Check,
-  MapPin,
-  Navigation,
-  Plus,
-  Sunrise,
-} from "lucide-react";
+import { ArrowLeft, Sunrise } from "lucide-react";
 import { fetchBeaches, createTrip } from "../api";
 import { beaches as fallbackBeaches } from "../data";
 import { ACTIVITY_OPTIONS, PRESET_LOCATIONS } from "../logic";
 import type { Beach } from "../types";
+import { BeachDistanceRow } from "./BeachDistanceRow";
 import { PLANNER_AUDIENCES, planBeaches } from "./distance";
+import { LocationPicker } from "./LocationPicker";
 import {
   PLANNER_OPEN_BEACH_KEY,
   type PlannerAudience,
@@ -45,9 +40,6 @@ export function TripPlannerScreen() {
   const [origin, setOrigin] = useState<PlannerLocation | null>(
     PRESET_LOCATIONS[0] ?? null,
   );
-  const [manualCoords, setManualCoords] = useState("");
-  const [coordError, setCoordError] = useState("");
-  const [locating, setLocating] = useState(false);
   const [audience, setAudience] = useState<PlannerAudience | "">("");
   const [activities, setActivities] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -82,52 +74,6 @@ export function TripPlannerScreen() {
       cancelled = true;
     };
   }, []);
-
-  const useMyLocation = () => {
-    if (!navigator.geolocation) {
-      setCoordError("Location is not available on this device");
-      return;
-    }
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setOrigin({
-          label: "My location",
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        });
-        setManualCoords("");
-        setCoordError("");
-        setLocating(false);
-      },
-      () => {
-        setCoordError("Could not get your location");
-        setLocating(false);
-      },
-      { timeout: 8000 },
-    );
-  };
-
-  const applyManualCoords = (raw: string) => {
-    const parts = raw.split(",").map((part) => Number.parseFloat(part.trim()));
-    if (
-      parts.length !== 2 ||
-      parts.some((value) => Number.isNaN(value)) ||
-      parts[0] < -90 ||
-      parts[0] > 90 ||
-      parts[1] < -180 ||
-      parts[1] > 180
-    ) {
-      setCoordError("Enter coordinates as lat, lng (e.g. 37.103, -8.674)");
-      return;
-    }
-    setOrigin({
-      label: raw.trim(),
-      latitude: parts[0],
-      longitude: parts[1],
-    });
-    setCoordError("");
-  };
 
   const planned = useMemo(
     () => planBeaches(beachCatalog, origin, { audience, activities }),
@@ -203,50 +149,7 @@ export function TripPlannerScreen() {
           </span>
         </div>
 
-        <div className="location-row">
-          <MapPin />
-          <span className="location-presets">
-            {PRESET_LOCATIONS.map((place) => (
-              <button
-                key={place.label}
-                className={origin?.label === place.label ? "active" : ""}
-                onClick={() => {
-                  setOrigin(place);
-                  setManualCoords("");
-                  setCoordError("");
-                }}
-              >
-                {place.label}
-              </button>
-            ))}
-            <button onClick={useMyLocation} disabled={locating}>
-              <Navigation size={14} /> {locating ? "Locating…" : "My location"}
-            </button>
-          </span>
-        </div>
-        <label className="search-field">
-          <input
-            value={manualCoords}
-            placeholder="Or enter GPS coordinates: 37.103, -8.674"
-            onChange={(event) => setManualCoords(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") applyManualCoords(manualCoords);
-            }}
-          />
-          <button
-            className="secondary-button"
-            onClick={() => applyManualCoords(manualCoords)}
-          >
-            Set pin
-          </button>
-        </label>
-        {origin ? (
-          <p className="muted">
-            Staying near <strong>{origin.label}</strong> · distances are
-            straight-line estimates (haversine)
-          </p>
-        ) : null}
-        {coordError ? <p className="form-error">{coordError}</p> : null}
+        <LocationPicker origin={origin} onChange={setOrigin} />
         {loadError ? <p className="form-error">{loadError}</p> : null}
 
         <div className="filter-group">
@@ -302,41 +205,15 @@ export function TripPlannerScreen() {
               <p>Try clearing the audience or activity filters.</p>
             </div>
           ) : null}
-          {planned.map(({ beach, travel }) => {
-            const isSelected = selected.includes(beach.id);
-            return (
-              <article className="result-row" key={beach.id}>
-                <button
-                  className="result-main"
-                  onClick={() => openBeachDetail(beach.id)}
-                >
-                  <img src={beach.image} alt="" />
-                  <span className="result-copy">
-                    <span className="result-topline">
-                      <strong>{beach.name}</strong>
-                    </span>
-                    <span>{beach.decision}</span>
-                    <small className="result-meta">
-                      {travel
-                        ? `Walk ${travel.walkMinutes} min · ${travel.walkDistanceKm} km — Drive ${travel.driveMinutes} min · ${travel.driveDistanceKm} km`
-                        : `${beach.drive} · ${beach.distance} · straight-line distance unavailable`}
-                    </small>
-                  </span>
-                </button>
-                <button
-                  className={`result-save ${isSelected ? "saved" : ""}`}
-                  onClick={() => toggleSelected(beach.id)}
-                  aria-label={
-                    isSelected
-                      ? `Remove ${beach.name} from trip`
-                      : `Add ${beach.name} to trip`
-                  }
-                >
-                  {isSelected ? <Check /> : <Plus />}
-                </button>
-              </article>
-            );
-          })}
+          {planned.map((entry) => (
+            <BeachDistanceRow
+              key={entry.beach.id}
+              planned={entry}
+              selected={selected.includes(entry.beach.id)}
+              onOpen={openBeachDetail}
+              onToggle={toggleSelected}
+            />
+          ))}
         </div>
 
         <div className="trip-date-grid">
