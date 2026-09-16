@@ -2,6 +2,21 @@ import type { Pool, PoolClient } from "pg";
 
 type Queryable = Pick<Pool | PoolClient, "query">;
 
+// ---------------------------------------------------------------------------
+// Ads / brand-sponsorship mount point for server/index.ts (integration owner).
+//
+// server/index.ts is owned by in-flight branches 2 and 3, so this workstream
+// deliberately does not edit it. /api/ads becomes reachable the moment the
+// index owner adds exactly one line where the other /api routers sit:
+//
+//   app.use("/api/ads", createAdsRouter(pool));
+//
+// The path collides with nothing already registered: /api/events, /api/me,
+// /api/check-ins, /api/bookings, /api/conditions, /api/merchant.
+// ---------------------------------------------------------------------------
+
+export { createAdsRouter, type AdsDb } from "./ads";
+
 function haversineKm(
   lat1: number,
   lng1: number,
