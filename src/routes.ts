@@ -15,6 +15,12 @@ export type SecondaryDestination = {
   description: string;
   /** Icon key resolved by the app shell — keeps this module React-free. */
   iconKey: "activity" | "calendar";
+  /**
+   * URL-addressable path for destinations that own a route (see the
+   * route helpers below). Asserted against the path constants in
+   * routes.test.ts so the registry can never drift from the routes.
+   */
+  routePath?: string;
 };
 
 /** Top-level destinations reachable from the Today screen action list. */
@@ -24,6 +30,10 @@ export const secondaryDestinations: readonly SecondaryDestination[] = [
     label: "Beach Pulse leaderboard",
     description: "Live rankings per audience — families, solo, party & more",
     iconKey: "activity",
+    // Literal, not PULSE_ROUTE_PATH: this array is evaluated at module
+    // load, before the constant below is initialized. routes.test.ts
+    // asserts the two stay equal.
+    routePath: "/pulse",
   },
   {
     id: "events-calendar",

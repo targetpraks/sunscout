@@ -1,36 +1,66 @@
 /**
  * Beach Pulse leaderboard — consumer route wrapper.
  *
- * `PulseLeaderboard` is a pure presentational component (props in, no I/O).
- * This wrapper is the wiring: it fetches the per-audience Pulse from the API,
- * lets the viewer switch audience, and hands ranked rows to the component.
- * Without this the leaderboard — the product's stated ranking moat — was
- * unreachable in the app.
+ * The wiring layer: it fetches the beach catalog once through ./api
+ * (GET /api/beaches — the same endpoint the Discovery screen consumes),
+ * then re-ranks it client-side with rankByPulse on every audience
+ * switch — no reload, no refetch — so per-audience weights from
+ * ./scoring drive the reshuffle. The chosen audience persists across
+ * visits via the /pulse?audience= URL (shareable) and localStorage
+ * (session-less default), using the route helpers from ../routes.
+ *
+ * `PulseLeaderboard` stays pure presentational: rows, loading, error and
+ * empty states all flow into it as props.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
+import AudiencePicker from "./AudiencePicker";
 import PulseLeaderboard from "./PulseLeaderboard";
-import { AUDIENCE_LABELS } from "./scoring";
+import { rankByPulse } from "./scoring";
+import {
+  catalogToPulseInputs,
+  fetchBeachCatalog,
+  type PulseBeachRow,
+} from "./api";
 import type { PulseAudience } from "./types";
+import { isPulseAudience, pulseRoutePath } from "../routes";
 
-type ApiPulseEntry = {
-  id: string;
-  audience: PulseAudience;
-  score: number;
-  confidence: number;
-  staleConditions: boolean;
-  label: string;
-};
+const AUDIENCE_STORAGE_KEY = "sunscout.pulse.audience";
 
-type ApiBeach = {
-  id: string;
-  name: string;
-  region?: string;
-};
+/**
+ * Initial audience: /pulse?audience=<x> wins, then the persisted
+ * localStorage choice, then "family". Window-guarded so the component
+ * stays SSR-safe.
+ */
+function readInitialAudience(): PulseAudience {
+  if (typeof window !== "undefined") {
+    try {
+      const fromUrl = new URLSearchParams(window.location.search).get(
+        "audience",
+      );
+      if (isPulseAudience(fromUrl)) return fromUrl;
+      const stored = window.localStorage.getItem(AUDIENCE_STORAGE_KEY);
+      if (isPulseAudience(stored)) return stored;
+    } catch {
+      // Private mode / blocked storage — fall through to the default.
+    }
+  }
+  return "family";
+}
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "/api";
-
-/** Audiences the engine scores, in the order shown in the switcher. */
-const AUDIENCES = Object.keys(AUDIENCE_LABELS) as PulseAudience[];
+/** Persist the audience to localStorage and the shareable /pulse URL. */
+function persistAudience(audience: PulseAudience) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(AUDIENCE_STORAGE_KEY, audience);
+  } catch {
+    // Storage unavailable — the in-memory selection still works.
+  }
+  try {
+    window.history.replaceState(null, "", pulseRoutePath(audience));
+  } catch {
+    // replaceState is best-effort decoration, never a failure.
+  }
+}
 
 export default function PulseLeaderboardScreen({
   onSelectBeach,
@@ -40,101 +70,72 @@ export default function PulseLeaderboardScreen({
   /** id → display name, so rows can be labelled without a second fetch. */
   beachNames?: Record<string, string>;
 }) {
-  const [audience, setAudience] = useState<PulseAudience>("family");
-  const [entries, setEntries] = useState<ApiPulseEntry[]>([]);
-  const [beaches, setBeaches] = useState<ApiBeach[]>([]);
+  const [audience, setAudience] = useState<PulseAudience>(readInitialAudience);
+  const [rows, setRows] = useState<PulseBeachRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // One clock per mount — re-ranking stays deterministic across audience
+  // switches without re-reading the system clock mid-session.
+  const [now] = useState(() => new Date());
 
+  // The catalog is audience-independent: fetched once, never refetched
+  // on an audience switch — switching re-ranks in place.
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/beaches`);
-      if (!response.ok) throw new Error(`beaches_${response.status}`);
-      const payload = (await response.json()) as { data: ApiBeach[] };
-      setBeaches(payload.data);
-
-      // Score every beach for the selected audience, then rank across beaches.
-      const results = await Promise.all(
-        payload.data.map(async (beach) => {
-          const pulseResponse = await fetch(
-            `${API_BASE}/beaches/${beach.id}/pulse`,
-          );
-          if (!pulseResponse.ok) return null;
-          const pulse = (await pulseResponse.json()) as {
-            data: ApiPulseEntry[];
-          };
-          const match = pulse.data.find((entry) => entry.audience === audience);
-          return match ?? null;
-        }),
-      );
-
-      setEntries(
-        results.filter((entry): entry is ApiPulseEntry => entry !== null),
-      );
+      setRows(await fetchBeachCatalog());
     } catch (cause) {
+      setRows(null);
       setError(cause instanceof Error ? cause.message : "pulse_unavailable");
     } finally {
       setLoading(false);
     }
-  }, [audience]);
+  }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const nameFor = useCallback(
-    (id: string) =>
-      beachNames?.[id] ?? beaches.find((beach) => beach.id === id)?.name ?? id,
-    [beaches, beachNames],
-  );
+  const onAudienceChange = useCallback((next: PulseAudience) => {
+    setAudience(next);
+    persistAudience(next);
+  }, []);
 
-  const items = useMemo(
-    () =>
-      entries.map((entry) => ({
-        id: entry.id,
-        name: nameFor(entry.id),
-        score: entry.score,
-        staleConditions: entry.staleConditions,
-      })),
-    [entries, nameFor],
-  );
+  // Ranked rows for the selected audience — pure re-computation per
+  // switch, exactly the scoring core's per-audience weights.
+  const items = useMemo(() => {
+    if (rows == null) return [];
+    const names = new Map(
+      rows.map((row) => [
+        row.id,
+        {
+          name: beachNames?.[row.id] ?? row.name,
+          region: row.location,
+        },
+      ]),
+    );
+    return rankByPulse(catalogToPulseInputs(rows), {
+      audience,
+      now,
+    }).map((result) => ({
+      id: result.id,
+      name: names.get(result.id)?.name ?? result.id,
+      region: names.get(result.id)?.region,
+      score: result.score,
+      staleConditions: result.staleConditions,
+    }));
+  }, [rows, audience, now, beachNames]);
 
   return (
-    <div style={{ padding: 16 }}>
-      <div
-        role="tablist"
-        aria-label="Audience"
-        style={{
-          display: "flex",
-          gap: 8,
-          overflowX: "auto",
-          paddingBottom: 12,
-        }}
-      >
-        {AUDIENCES.map((id) => (
-          <button
-            key={id}
-            role="tab"
-            aria-selected={audience === id}
-            onClick={() => setAudience(id)}
-            style={{
-              flex: "0 0 auto",
-              padding: "8px 14px",
-              borderRadius: 999,
-              border: "1px solid rgba(15,30,46,0.12)",
-              background: audience === id ? "#0A6E78" : "#FFFFFF",
-              color: audience === id ? "#FFFFFF" : "#0F1E2E",
-              fontSize: 13,
-              fontWeight: 600,
-            }}
-          >
-            {AUDIENCE_LABELS[id]}
-          </button>
-        ))}
-      </div>
-
+    <div
+      style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}
+    >
+      <AudiencePicker
+        value={audience}
+        onChange={onAudienceChange}
+        label="Beach Pulse audience"
+      />
       <PulseLeaderboard
         items={items}
         audience={audience}
