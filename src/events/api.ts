@@ -41,6 +41,38 @@ export async function fetchCoordinatorEvents(): Promise<BeachEvent[]> {
   return apiRequest<BeachEvent[]>(`/events/mine`);
 }
 
+export type BeachEventsFanOut = {
+  /** Merged published events across all requested beaches, deduped by publicId. */
+  events: BeachEvent[];
+  /** Beach ids whose feed could not be reached (offline/4xx/5xx). */
+  failedBeachIds: string[];
+};
+
+/**
+ * Consumer screen fan-out: fetch the published feed for every beach in the
+ * catalog via the existing GET /api/events/beaches/:id handler — no new
+ * server endpoint. Per-beach failures never fail the screen: successes
+ * merge (deduped by event publicId) and failures are reported back so the
+ * UI can show an honest partial-outage note.
+ */
+export async function fetchAllBeachEvents(
+  beachPublicIds: readonly string[],
+): Promise<BeachEventsFanOut> {
+  const results = await Promise.allSettled(
+    beachPublicIds.map((beachPublicId) => fetchBeachEvents(beachPublicId)),
+  );
+  const byPublicId = new Map<string, BeachEvent>();
+  const failedBeachIds: string[] = [];
+  results.forEach((result, index) => {
+    if (result.status === "fulfilled") {
+      for (const event of result.value) byPublicId.set(event.publicId, event);
+    } else {
+      failedBeachIds.push(beachPublicIds[index]);
+    }
+  });
+  return { events: [...byPublicId.values()], failedBeachIds };
+}
+
 export async function createEvent(input: EventInput): Promise<BeachEvent> {
   return apiRequest<BeachEvent>(`/events`, {
     method: "POST",

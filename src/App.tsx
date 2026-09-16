@@ -104,6 +104,7 @@ import {
 import { AccuracyPanel } from "./accuracy/AccuracyPanel";
 import { beaches as fallbackBeaches, tideData } from "./data";
 import PulseLeaderboardScreen from "./pulse/PulseLeaderboardScreen";
+import { EventsRouteView } from "./events/routes";
 import { BeachCommunitySection } from "./community/BeachCommunitySection";
 import { SightingsSection } from "./sightings/SightingsSection";
 import { BookingsRouteView } from "./bookings/routes";
@@ -481,6 +482,7 @@ function TodayScreen({
   onCancelBooking,
   onOpenGoldenHour,
   onOpenPulse,
+  onOpenEvents,
   onOpenBookings,
   onToast,
 }: {
@@ -494,6 +496,7 @@ function TodayScreen({
   onCancelBooking: () => void;
   onOpenGoldenHour: () => void;
   onOpenPulse: () => void;
+  onOpenEvents: () => void;
   onOpenBookings: () => void;
   onToast: (message: string) => void;
 }) {
@@ -566,6 +569,12 @@ function TodayScreen({
             subtitle="Ranked for how you beach — families, solo, party & more"
             trailing="Live"
             onClick={onOpenPulse}
+          />
+          <ActionRow
+            icon={Calendar}
+            title="What's happening"
+            subtitle="Parties, competitions and takeovers near you"
+            onClick={onOpenEvents}
           />
           <ActionRow
             icon={Sun}
@@ -3783,6 +3792,7 @@ export function App() {
   const [opsOpen, setOpsOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
   const [pulseOpen, setPulseOpen] = useState(false);
+  const [eventsOpen, setEventsOpen] = useState(false);
   const [bookingsOpen, setBookingsOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [premiumOpen, setPremiumOpen] = useState(false);
@@ -3904,6 +3914,8 @@ export function App() {
     setInstitutionOpen(false);
     setOpsOpen(false);
     setJournalOpen(false);
+    setPulseOpen(false);
+    setEventsOpen(false);
     setActiveTab(tab);
   };
 
@@ -3951,6 +3963,20 @@ export function App() {
           }}
         />
       </div>
+    );
+  } else if (eventsOpen) {
+    screen = (
+      <EventsRouteView
+        beachCatalog={beachCatalog}
+        onBack={() => setEventsOpen(false)}
+        onOpenBeach={(beachId) => {
+          const beach = beachCatalog.find((item) => item.id === beachId);
+          if (beach) {
+            setEventsOpen(false);
+            selectBeach(beach);
+          }
+        }}
+      />
     );
   } else if (bookingsOpen) {
     screen = (
@@ -4022,6 +4048,7 @@ export function App() {
         }}
         onOpenGoldenHour={() => setGoldenHourBeach(homeBeach)}
         onOpenPulse={() => setPulseOpen(true)}
+        onOpenEvents={() => setEventsOpen(true)}
         onOpenBookings={() => setBookingsOpen(true)}
         onToast={showToast}
       />
