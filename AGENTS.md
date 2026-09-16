@@ -71,3 +71,15 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+## Server Route Modules (S1 hotspot refactor, 16 Sep 2026)
+
+- `server/index.ts` is a ~184-line orchestration layer; route bodies live in `server/routes/*` (beaches, conditions, me, checkins, bookings, merchant, institution, hazards, analytics) plus shared `server/audit.ts`.
+- Route modules follow the repo's existing router pattern: `express.Router()` mounted bare with full `/api/...` paths, like the pre-existing `vibesRouter`/`pillarsRouter`/`accuracyRouter`.
+- Registration order is load-bearing — four order traps to preserve:
+  1. `vibesRouter`/`pillarsRouter` mount before `beachesRouter` (community subpaths beat the `/api/beaches/:slug` detail route).
+  2. Auth prefix gates stay in `index.ts`, mounted before the routers they gate (`GET /api/conditions` gated, `/api/providers` public).
+  3. `/api/institution/trends` + `/api/embed/:token` remain public (mounted before the `/api/institution` auth gate); portal routes after.
+  4. `bookingsCoreRouter` (list/create/checkout) before the lifecycle `bookingsRouter` (cancel/receipt), both under the `/api/bookings` gate.
+- Merge-queue order landed 16 Sep 2026 (17 PRs total across S1+S2): #3 pillar wiring · #4 app-shell wiring · #7 booking self-service · #10 day-score/alerts/discovery · #11 accuracy feedback · #6 trip planner · #5 sponsorship · #8 data-sources docs · #12 live events · #13 alert engine · #14 per-audience discovery · #15 freshness decay · #16 sightings lifecycle · #17 route-module split · #18 Day Score wiring · #19 sightings reachability · #20 Beach Day Guide.
+- Local DB note: `npm run db:reset` fails on rmmacbook because the live Coolify stack owns port 55432 — run a disposable postgres on 55499 (e.g. `docker run -d --name sunscout-pg-proof -e POSTGRES_USER=sunscout -e POSTGRES_PASSWORD=sunscout -e POSTGRES_DB=sunscout -p 55499:5432 postgres:16`) and override `DATABASE_URL` for proof runs. Never touch the live stack.
