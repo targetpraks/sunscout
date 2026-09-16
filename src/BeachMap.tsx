@@ -1,6 +1,7 @@
 import { MapPin } from "lucide-react";
 import type { Beach } from "./types";
 import { SponsoredRail } from "./ads/SponsoredRail";
+import { NearMePanel } from "./nearme/NearMePanel";
 
 type Origin = { label: string; latitude: number; longitude: number };
 
@@ -152,6 +153,10 @@ export function BeachMap({
           within {radiusKm} km
         </span>
       </div>
+      {/* Near Me Now picker: geolocation + manual fallback, distance-blended
+          ranking. Sits OUTSIDE the role="img" container like the sponsored
+          rail — interactive controls must not live inside an image role. */}
+      <NearMePanel beaches={beaches} onSelect={onSelect} />
       {/* Sponsored rail sits OUTSIDE the role="img" container: interactive
           links inside an image role are unreachable to the a11y tree. */}
       <SponsoredRail
