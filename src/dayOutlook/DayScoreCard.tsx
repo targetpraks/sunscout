@@ -1,4 +1,6 @@
 import { Sun } from "lucide-react";
+import { AlertBanner } from "../alerts/AlertBanner";
+import { AlertRuleEditor } from "../alerts/AlertRuleEditor";
 import {
   DAY_AUDIENCE_LABELS,
   DAY_TIER_LABELS,
@@ -107,6 +109,13 @@ export function DayScoreCard({ dayScore }: { dayScore: DayScore }) {
           Bumping the crowd forecast: {dayScore.activeEvents.join(", ")}.
         </p>
       ) : null}
+      {/* Personal condition alerts ("tell me before I go") ride the Day
+          Score card: the banner shows triggered rules at or above the
+          configured priority and the editor manages them. Both are
+          self-sufficient and user-scoped, so no props flow from TidePanel
+          or App — the card's { dayScore } signature is unchanged. */}
+      <AlertBanner />
+      <AlertRuleEditor />
     </section>
   );
 }
