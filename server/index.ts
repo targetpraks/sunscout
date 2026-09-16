@@ -29,6 +29,7 @@ import { listBeaches } from "./beaches";
 import { refreshConditions } from "./conditions";
 import { pool, withTransaction } from "./db";
 import { migrate } from "./migrate";
+import { accuracyRouter } from "./accuracy";
 
 const app = express();
 const port = Number(process.env.API_PORT ?? 8787);
@@ -1508,6 +1509,10 @@ app.post(
     response.status(201).json({ data: { recorded: true } });
   },
 );
+
+// Condition-accuracy feedback loop (PRD 6.1): rate the data, feed Beach Pulse.
+// POST is auth-scoped inside the router; the aggregate GET is public.
+app.use("/api/accuracy", accuracyRouter);
 
 app.get("/api/beaches/:slug/spotter-campaign", async (request, response) => {
   const beach = await pool.query<{ id: number }>(
