@@ -105,7 +105,11 @@ export function TidePanel({
     <>
       {slug && dayScore ? <DayScoreCard dayScore={dayScore} /> : null}
       {slug && dayScore ? (
-        <BeachDayGuideCard dayScore={dayScore} conditions={guideConditions} />
+        <BeachDayGuideCard
+          dayScore={dayScore}
+          conditions={guideConditions}
+          slug={slug}
+        />
       ) : null}
       <section className={`tide-panel ${expanded ? "expanded" : ""}`}>
         <button className="section-heading tide-heading" onClick={onToggle}>

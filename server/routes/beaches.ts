@@ -7,6 +7,7 @@ import { concierge } from "../concierge";
 import { computeAndStoreDayQuality, getDayQuality } from "../dayQuality";
 import { refreshConditions } from "../conditions";
 import { pool, withTransaction } from "../db";
+import { createDayPlanHandler } from "../dayPlan";
 export const beachesRouter = express.Router();
 
 beachesRouter.get("/api/beaches", async (request, response) => {
@@ -385,6 +386,17 @@ beachesRouter.post(
     response.status(201).json({ data: { reported: entries.length } });
   },
 );
+
+// Timed Beach Day itinerary (PRD "what is actually happening there — and
+// can I book the day before I leave"): a time-ordered plan for the rest of
+// the beach-local day composed from live conditions (golden hour), the
+// latest-day tide readings, published beach events and the caller's own
+// booking. A :slug subpath like the other beach-scoped routes — it cannot
+// shadow or be shadowed by the single-segment /api/beaches/:slug detail
+// route, and the community routers mounted before beachesRouter in
+// server/index.ts are untouched (their subpaths still win registration
+// order, per the documented mount-order traps).
+beachesRouter.get("/api/beaches/:slug/day-plan", createDayPlanHandler(pool));
 
 beachesRouter.get(
   "/api/beaches/:slug/community-data",
