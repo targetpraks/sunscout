@@ -99,10 +99,11 @@ import {
   addFriend,
   deleteFriend,
   updateMerchantInventory,
-  voteVibe as apiVoteVibe,
 } from "./api";
 import { AccuracyPanel } from "./accuracy/AccuracyPanel";
 import { beaches as fallbackBeaches, tideData } from "./data";
+import PulseLeaderboardScreen from "./pulse/PulseLeaderboardScreen";
+import { BeachCommunitySection } from "./community/BeachCommunitySection";
 import {
   ACTIVITY_OPTIONS,
   AUDIENCE_OPTIONS,
@@ -476,6 +477,7 @@ function TodayScreen({
   onOpenBooking,
   onCancelBooking,
   onOpenGoldenHour,
+  onOpenPulse,
   onToast,
 }: {
   beach: Beach;
@@ -487,6 +489,7 @@ function TodayScreen({
   onOpenBooking: () => void;
   onCancelBooking: () => void;
   onOpenGoldenHour: () => void;
+  onOpenPulse: () => void;
   onToast: (message: string) => void;
 }) {
   const [tideExpanded, setTideExpanded] = useState(false);
@@ -546,6 +549,13 @@ function TodayScreen({
           />
         </Suspense>
         <div className="action-list">
+          <ActionRow
+            icon={Activity}
+            title="Beach Pulse"
+            subtitle="Ranked for how you beach — families, solo, party & more"
+            trailing="Live"
+            onClick={onOpenPulse}
+          />
           <ActionRow
             icon={Sun}
             title="Golden Hour"
@@ -1039,40 +1049,6 @@ function DiscoverScreen({
   );
 }
 
-function VibeVotes({
-  beach,
-  onVote,
-}: {
-  beach: Beach;
-  onVote: (tag: string) => void;
-}) {
-  const votes =
-    beach.vibeVotes ??
-    beach.vibes.map((tag) => ({ tag, votes: 0, userVoted: false }));
-  if (!votes.length) return null;
-  return (
-    <section className="detail-section">
-      <div className="section-heading">
-        <h2>Vibes</h2>
-        <span>Community votes</span>
-      </div>
-      <div className="vibe-tags">
-        {votes.map((vote) => (
-          <button
-            key={vote.tag}
-            className={`vibe-tag ${vote.userVoted ? "voted" : ""}`}
-            onClick={() => onVote(vote.tag)}
-          >
-            <Sparkles size={14} />
-            {vote.tag}
-            <b>{vote.votes}</b>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function PhotoGallery({ beach }: { beach: Beach }) {
   const photos = beach.photos ?? [];
   if (!photos.length) return null;
@@ -1433,7 +1409,6 @@ function BeachDetail({
   onCheckIn,
   onAddToTrip,
   onOpenGoldenHour,
-  onVoteVibe,
   onReportHazard,
   onReport,
   onToast,
@@ -1447,7 +1422,6 @@ function BeachDetail({
   onCheckIn: () => void;
   onAddToTrip: () => void;
   onOpenGoldenHour: () => void;
-  onVoteVibe: (tag: string) => void;
   onReportHazard: () => void;
   onReport: () => void;
   onToast: (message: string) => void;
@@ -1572,7 +1546,13 @@ function BeachDetail({
             </div>
           </section>
         ) : null}
-        <VibeVotes beach={beach} onVote={onVoteVibe} />
+        <section className="detail-section">
+          <div className="section-heading">
+            <h2>How it feels right now</h2>
+            <span>Community</span>
+          </div>
+          <BeachCommunitySection beachId={beach.id} beach={beach} />
+        </section>
         <AccuracyPanel beachId={beach.slug ?? beach.id} />
         <PhotoGallery beach={beach} />
         <HazardList beach={beach} />
@@ -3778,6 +3758,7 @@ export function App() {
   const [institutionOpen, setInstitutionOpen] = useState(false);
   const [opsOpen, setOpsOpen] = useState(false);
   const [journalOpen, setJournalOpen] = useState(false);
+  const [pulseOpen, setPulseOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [premiumOpen, setPremiumOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -3901,62 +3882,6 @@ export function App() {
     setActiveTab(tab);
   };
 
-  const voteVibe = async (tag: string) => {
-    if (!selectedBeach) return;
-    const beachId = selectedBeach.id;
-    try {
-      const result = await apiVoteVibe(beachId, tag);
-      setSelectedBeach((current) =>
-        current
-          ? {
-              ...current,
-              vibeVotes: (current.vibeVotes ?? []).map((vote) =>
-                vote.tag === tag
-                  ? {
-                      ...vote,
-                      userVoted: result.data.voted,
-                      votes:
-                        result.data.votes.find((v) => v.tag === tag)?.votes ??
-                        vote.votes,
-                    }
-                  : {
-                      ...vote,
-                      userVoted: false,
-                      votes:
-                        result.data.votes.find((v) => v.tag === vote.tag)
-                          ?.votes ?? vote.votes,
-                    },
-              ),
-            }
-          : current,
-      );
-      showToast(
-        result.data.voted ? `Voted for ${tag}` : `Removed vote for ${tag}`,
-      );
-    } catch {
-      setSelectedBeach((current) =>
-        current
-          ? {
-              ...current,
-              vibeVotes: (current.vibeVotes ?? []).map((vote) =>
-                vote.tag === tag
-                  ? {
-                      ...vote,
-                      userVoted: !vote.userVoted,
-                      votes: Math.max(
-                        0,
-                        vote.votes + (vote.userVoted ? -1 : 1),
-                      ),
-                    }
-                  : vote,
-              ),
-            }
-          : current,
-      );
-      showToast(`Voted for ${tag}`);
-    }
-  };
-
   const startTrip = (preselected: string[] = []) => {
     const activeTrips = trips.filter((trip) => trip.status === "active");
     if (!canCreateTrip(activeTrips.length, isPremium).ok) {
@@ -3981,6 +3906,27 @@ export function App() {
     );
   } else if (journalOpen) {
     screen = <JournalScreen onBack={() => setJournalOpen(false)} />;
+  } else if (pulseOpen) {
+    screen = (
+      <div>
+        <button
+          onClick={() => setPulseOpen(false)}
+          className="text-button"
+          style={{ margin: "12px 16px" }}
+        >
+          ← Back
+        </button>
+        <PulseLeaderboardScreen
+          onSelectBeach={(beachId) => {
+            const beach = beachCatalog.find((item) => item.id === beachId);
+            if (beach) {
+              setPulseOpen(false);
+              selectBeach(beach);
+            }
+          }}
+        />
+      </div>
+    );
   } else if (opsOpen) {
     screen = <OpsScreen onBack={() => setOpsOpen(false)} />;
   } else if (institutionOpen) {
@@ -4010,7 +3956,6 @@ export function App() {
         onCheckIn={() => setCheckInBeach(selectedBeach)}
         onAddToTrip={() => startTrip([selectedBeach.id])}
         onOpenGoldenHour={() => setGoldenHourBeach(selectedBeach)}
-        onVoteVibe={voteVibe}
         onReportHazard={() => setHazardReportBeach(selectedBeach)}
         onReport={() => setReportBeach(selectedBeach)}
         onToast={showToast}
@@ -4044,6 +3989,7 @@ export function App() {
           }
         }}
         onOpenGoldenHour={() => setGoldenHourBeach(homeBeach)}
+        onOpenPulse={() => setPulseOpen(true)}
         onToast={showToast}
       />
     );

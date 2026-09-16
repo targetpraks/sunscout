@@ -1725,38 +1725,82 @@ input:focus-visible {
   color: var(--marine);
 }
 
-.vibe-tags {
+/* Community vibe bar — per-audience vibe votes (replaces the legacy
+   .vibe-tag chip row retired with the old VibeVotes component). */
+.vibe-bar {
+  margin: 0;
+  padding: 14px 0;
+}
+.vibe-bar h3 {
+  font-size: 14px;
+  color: var(--marine);
+  margin: 0 0 8px;
+}
+.vibe-bar p {
+  font-size: 13px;
+  color: var(--driftwood);
+  margin: 4px 0;
+}
+.vibe-tallies {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vibe-tally {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--marine);
+}
+.vibe-tally-label {
+  min-width: 88px;
+  text-transform: capitalize;
+  color: var(--driftwood);
+}
+.vibe-tally-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--teal);
+  opacity: 0.85;
+}
+.vibe-tally-count {
+  min-width: 24px;
+  text-align: right;
+  font-weight: 600;
+}
+.vibe-cooldown {
+  font-size: 12px;
+  color: var(--coral-text);
+}
+.vibe-options {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-top: 10px;
 }
-.vibe-tag {
+.vibe-option {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 7px 11px;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: var(--sand);
   font-size: 13px;
+  color: var(--marine);
   cursor: pointer;
 }
-.vibe-tag svg {
-  width: 14px;
-  height: 14px;
-  color: var(--coral);
+.vibe-option:hover:not(:disabled) {
+  border-color: var(--teal);
 }
-.vibe-tag b {
-  font-size: 12px;
-  color: var(--driftwood);
-}
-.vibe-tag.voted {
-  border-color: var(--coral);
-  background: rgba(255, 107, 92, 0.1);
-  color: var(--coral);
-}
-.vibe-tag.voted b {
-  color: var(--coral);
+.vibe-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .photo-gallery {

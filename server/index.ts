@@ -30,6 +30,8 @@ import { refreshConditions } from "./conditions";
 import { pool, withTransaction } from "./db";
 import { migrate } from "./migrate";
 import { accuracyRouter } from "./accuracy";
+import { pillarsRouter } from "./pillarsRouter";
+import { vibesRouter } from "./vibes";
 
 const app = express();
 const port = Number(process.env.API_PORT ?? 8787);
@@ -193,6 +195,12 @@ app.get("/api/beaches", async (request, response) => {
     meta: { count: filtered.length, conditions: refreshMeta, origin },
   });
 });
+
+// Community + pillar routers mount BEFORE the /api/beaches/:slug catch-all
+// below so the deeper community paths (/api/beaches/:id/vibes, :id/pulse,
+// :id/sightings) win registration-order matching over the detail route.
+app.use("/api", vibesRouter);
+app.use(pillarsRouter);
 
 app.get("/api/beaches/:slug", async (request, response) => {
   const all = await listBeaches(pool, await resolveOptionalUser(request));
