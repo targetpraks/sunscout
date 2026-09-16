@@ -12,9 +12,26 @@ import {
   SIGHTING_TIMES_OF_DAY,
   validateCaptureInput,
   type NewSightingInput,
+  type Sighting,
   type SightingAudience,
   type SightingTimeOfDay,
 } from "./types";
+import { submitSighting } from "./api";
+
+export { submitSighting };
+
+/**
+ * Real submit path for the capture flow: fills the client-moderated state
+ * (the server requires an explicit moderationState on POST) and POSTs
+ * through ./api. Host screens and tests use this so the payload shape is
+ * exactly what the sightings router accepts.
+ */
+export async function postSightingFromCapture(
+  input: NewSightingInput,
+  submit: (input: NewSightingInput) => Promise<Sighting> = submitSighting,
+): Promise<Sighting> {
+  return submit({ moderationState: "approved", ...input });
+}
 
 export type SightingCaptureProps = {
   beachId: string;

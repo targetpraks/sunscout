@@ -99,6 +99,12 @@ export type NewSightingInput = {
   beachId: string;
   audience: SightingAudience;
   timeOfDay?: SightingTimeOfDay | null;
+  /**
+   * Client-side moderation state. The server requires it on POST; the
+   * capture flow always sends "approved" (read-time gate stays the source
+   * of truth).
+   */
+  moderationState?: "approved";
   consent: SightingConsent;
   caption?: string | null;
   nativeMedia?: { url: string; mimeType: string };
@@ -129,25 +135,64 @@ export function freshnessWeight(sighting: Sighting, now: Date): number {
 }
 
 /**
- * Expiry- and moderation-aware rail selector: excludes expired and
- * non-approved sightings, sorts most recent first, caps at `limit`.
+ * Expiry- and moderation-aware rail selector with deterministic freshness
+ * ordering (deliberate mirror of the server module — identical semantics):
+ *
+ *  1. freshness weight desc — recency dominates; expired rows are already
+ *     excluded, and link sightings persist but decay below fresh native
+ *     ones of the same age;
+ *  2. per-beach sighting volume desc over the visible candidate set;
+ *  3. capturedAt desc;
+ *  4. native before link;
+ *  5. id asc — final stable tiebreak.
  */
 export function selectRailSightings(
   sightings: Sighting[],
-  options: { now: Date; limit: number; beachId?: string },
+  options: {
+    now: Date;
+    limit: number;
+    beachId?: string;
+    audience?: SightingAudience;
+  },
 ): Sighting[] {
   const { now, limit } = options;
-  return sightings
+  const candidates = sightings
     .filter((sighting) => sighting.moderationState === "approved")
     .filter((sighting) => !isExpiredSighting(sighting, now))
     .filter(
       (sighting) =>
         options.beachId === undefined || sighting.beachId === options.beachId,
     )
-    .sort(
-      (a, b) =>
-        new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime(),
-    )
+    .filter(
+      (sighting) =>
+        options.audience === undefined ||
+        sighting.audience === options.audience,
+    );
+
+  const volumeByBeach = new Map<string, number>();
+  for (const sighting of candidates) {
+    volumeByBeach.set(
+      sighting.beachId,
+      (volumeByBeach.get(sighting.beachId) ?? 0) + 1,
+    );
+  }
+
+  return candidates
+    .sort((a, b) => {
+      const freshnessDiff = freshnessWeight(b, now) - freshnessWeight(a, now);
+      if (freshnessDiff !== 0) return freshnessDiff;
+      const volumeDiff =
+        (volumeByBeach.get(b.beachId) ?? 0) -
+        (volumeByBeach.get(a.beachId) ?? 0);
+      if (volumeDiff !== 0) return volumeDiff;
+      const timeDiff =
+        new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      if (a.media.form !== b.media.form) {
+        return a.media.form === "native" ? -1 : 1;
+      }
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    })
     .slice(0, Math.max(0, limit));
 }
 
