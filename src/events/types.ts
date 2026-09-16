@@ -1,3 +1,5 @@
+import type { PulseAudience } from "../pulse/types";
+
 /**
  * Client-side event domain types and pure helpers. Mirrors the server module
  * (server/events.ts) — the front-end cannot import server code, so keep the
@@ -164,4 +166,206 @@ export function formatEventRemaining(endsAt: string, now: Date): string {
   const minutes = totalMinutes % 60;
   if (hours === 0) return `Ends in ${minutes}m`;
   return minutes === 0 ? `Ends in ${hours}h` : `Ends in ${hours}h ${minutes}m`;
+}
+
+// === Consumer "What's happening" screen: pure filtering and grouping ===
+//
+// The screen is a client-side view over the per-beach /api/events feeds:
+// everything below is pure (no DB, no clock reads) so node tests stay
+// deterministic. None of it is consumed by the Beach Pulse or rankings.
+
+/** Date windows offered on the events screen. */
+export const EVENT_WINDOWS = ["today", "weekend", "week", "anytime"] as const;
+
+export type EventWindow = (typeof EVENT_WINDOWS)[number];
+
+export const EVENT_WINDOW_LABELS: Record<EventWindow, string> = {
+  today: "Today",
+  weekend: "This weekend",
+  week: "Next 7 days",
+  anytime: "Any time",
+};
+
+/**
+ * Client-side convenience map from event category to the pulse audiences it
+ * plausibly serves. The server event model has no audience field, so the
+ * consumer screen derives one from the category. Purely a UI affordance —
+ * this map is never consumed by the Beach Pulse or any ranking.
+ */
+export const EVENT_CATEGORY_AUDIENCES: Record<
+  EventCategory,
+  readonly PulseAudience[]
+> = {
+  party: ["party", "friends"],
+  "surf-competition": ["party", "friends", "solo"],
+  "beach-soccer": ["family", "friends"],
+  triathlon: ["friends", "solo"],
+  sailing: ["couples", "chill", "solo"],
+  takeover: ["family", "friends", "solo", "couples", "party", "chill"],
+};
+
+const DAY_MS = 86_400_000;
+
+function localMidnight(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+export type EventWindowRange = {
+  /** Inclusive local-midnight start of the window. */
+  start: Date;
+  /** Exclusive end, or null for an open-ended window. */
+  end: Date | null;
+};
+
+/**
+ * Resolve a date window to an absolute range relative to `now`, in the
+ * viewer's local calendar. "weekend" covers the Saturday the current or
+ * upcoming weekend begins (Sunday events included via the end bound).
+ */
+export function eventWindowRange(
+  window: EventWindow,
+  now: Date,
+): EventWindowRange {
+  const start = localMidnight(now);
+  if (window === "today")
+    return { start, end: new Date(start.getTime() + DAY_MS) };
+  if (window === "week")
+    return { start, end: new Date(start.getTime() + 7 * DAY_MS) };
+  if (window === "anytime") return { start, end: null };
+  const day = now.getDay();
+  const satOffset = day === 0 ? -1 : 6 - day;
+  const saturday = new Date(start.getTime() + satOffset * DAY_MS);
+  return { start: saturday, end: new Date(saturday.getTime() + 2 * DAY_MS) };
+}
+
+export type ScreenEventFilters = {
+  window: EventWindow;
+  audience: PulseAudience | null;
+};
+
+/**
+ * Filter a raw merged event feed down to what the consumer screen shows:
+ * published, not yet ended, overlapping the selected window, and matching
+ * the selected audience. Sorted by start ascending. Deliberately ignores
+ * the paid-takeover flag — paid placement never changes visibility.
+ */
+export function filterScreenEvents(
+  events: BeachEvent[],
+  filters: ScreenEventFilters,
+  now: Date,
+): BeachEvent[] {
+  const ref = now.getTime();
+  const range = eventWindowRange(filters.window, now);
+  const rangeStart = range.start.getTime();
+  const rangeEnd = range.end?.getTime() ?? null;
+  return consumerVisibleEvents(events)
+    .filter((event) => {
+      const start = new Date(event.startsAt).getTime();
+      const end = new Date(event.endsAt).getTime();
+      return (
+        end > ref && end > rangeStart && (rangeEnd == null || start < rangeEnd)
+      );
+    })
+    .filter(
+      (event) =>
+        filters.audience == null ||
+        EVENT_CATEGORY_AUDIENCES[event.category].includes(filters.audience),
+    )
+    .sort(
+      (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+    );
+}
+
+export type EventDayGroup = {
+  /** `new Date(startsAt).toDateString()` of the group's local day. */
+  dayKey: string;
+  /** "Today", "Tomorrow" or a weekday + date label. */
+  label: string;
+  isToday: boolean;
+  /** Events in the day, sorted by start ascending. */
+  events: BeachEvent[];
+};
+
+/**
+ * Bucket events by local calendar day. Events whose window covers `now`
+ * always land in the Today group (they are what's actually happening),
+ * everything else buckets by its start day. Groups sort Today first, then
+ * ascending by day; each group's events sort by start ascending.
+ */
+export function groupEventsByDay(
+  events: BeachEvent[],
+  now: Date,
+): EventDayGroup[] {
+  const ref = now.getTime();
+  const todayKey = now.toDateString();
+  const tomorrow = new Date(localMidnight(now).getTime() + DAY_MS);
+  const tomorrowKey = tomorrow.toDateString();
+  const buckets = new Map<string, BeachEvent[]>();
+  for (const event of [...events].sort(
+    (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+  )) {
+    const start = new Date(event.startsAt).getTime();
+    const end = new Date(event.endsAt).getTime();
+    const key =
+      start <= ref && ref < end
+        ? todayKey
+        : new Date(event.startsAt).toDateString();
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(event);
+    else buckets.set(key, [event]);
+  }
+  const groups: Array<EventDayGroup & { sortInstant: number }> = [];
+  for (const [dayKey, bucketEvents] of buckets) {
+    const first = new Date(bucketEvents[0].startsAt);
+    const isToday = dayKey === todayKey;
+    const label = isToday
+      ? "Today"
+      : dayKey === tomorrowKey
+        ? "Tomorrow"
+        : first.toLocaleDateString(undefined, {
+            weekday: "long",
+            day: "numeric",
+            month: "short",
+          });
+    groups.push({
+      dayKey,
+      label,
+      isToday,
+      events: bucketEvents,
+      sortInstant: isToday ? ref - 1 : localMidnight(first).getTime(),
+    });
+  }
+  groups.sort((a, b) => a.sortInstant - b.sortInstant);
+  return groups.map(({ sortInstant: _sortInstant, ...group }) => group);
+}
+
+export type EventBeachGroup = {
+  beachPublicId: string;
+  beachName: string;
+  events: BeachEvent[];
+};
+
+/**
+ * Group events per beach, first-seen order preserved, events in input
+ * order. The screen renders one group per beach so a beachgoer can scan
+ * what each beach has on.
+ */
+export function groupEventsByBeach(events: BeachEvent[]): EventBeachGroup[] {
+  const groups: EventBeachGroup[] = [];
+  const index = new Map<string, EventBeachGroup>();
+  for (const event of events) {
+    const existing = index.get(event.beachPublicId);
+    if (existing) {
+      existing.events.push(event);
+      continue;
+    }
+    const group: EventBeachGroup = {
+      beachPublicId: event.beachPublicId,
+      beachName: event.beachName,
+      events: [event],
+    };
+    index.set(event.beachPublicId, group);
+    groups.push(group);
+  }
+  return groups;
 }
