@@ -326,3 +326,169 @@ merchantRouter.post("/api/merchant/inventory", async (request, response) => {
   });
   response.status(201).json({ data: result.rows[0] });
 });
+
+// ---------------------------------------------------------------------------
+// Settlement ledger (merchant B2B payouts surface)
+// ---------------------------------------------------------------------------
+
+/** Merchant-facing ledger state: booked → redeemed → settled. */
+export type LedgerState = "booked" | "redeemed" | "settled";
+
+export type LedgerStatusInput = {
+  booking_status: string;
+  settlement_status: string | null;
+};
+
+/**
+ * Maps the raw booking/settlement statuses onto the three merchant-facing
+ * ledger states.
+ *
+ *   booked   — confirmed reservation, guest has not redeemed yet (still
+ *               cancellable, so NOT part of the payout balance)
+ *   redeemed — the merchant has served the booking; earned but not yet paid
+ *   settled  — the settlement row closed as settled (paid out)
+ *
+ * Money that went back to the guest (refunded settlement or booking) is off
+ * the ledger. Cancelled/no-show bookings with a still-pending settlement
+ * are off the ledger too — but a cancelled booking whose settlement already
+ * closed as settled stays in as settled: a no-refund cancellation is a
+ * legitimate forfeiture (server/bookings.ts marks it settled), so that money
+ * was really paid to the merchant and must not vanish from payouts.
+ */
+export function deriveLedgerState(row: LedgerStatusInput): LedgerState | null {
+  if (
+    row.settlement_status === "refunded" ||
+    row.booking_status === "refunded"
+  ) {
+    return null;
+  }
+  if (row.settlement_status === "settled") return "settled";
+  if (row.booking_status === "cancelled" || row.booking_status === "no_show") {
+    return null;
+  }
+  if (row.booking_status === "redeemed") return "redeemed";
+  return "booked";
+}
+
+export type SettlementBalances = {
+  /** Net cents earned (redeemed, not yet paid out) — available for payout. */
+  availableCents: number;
+  /** Net cents booked but not yet redeemed — still cancellable, not payout money. */
+  inProgressCents: number;
+  /** Net cents already settled (paid out to the merchant). */
+  paidCents: number;
+};
+
+export function computeSettlementBalances(
+  rows: Array<{ state: LedgerState; netCents: number }>,
+): SettlementBalances {
+  const balances: SettlementBalances = {
+    availableCents: 0,
+    inProgressCents: 0,
+    paidCents: 0,
+  };
+  for (const row of rows) {
+    if (row.state === "redeemed") balances.availableCents += row.netCents;
+    else if (row.state === "booked") balances.inProgressCents += row.netCents;
+    else balances.paidCents += row.netCents;
+  }
+  return balances;
+}
+
+type LedgerEntry = {
+  booking_public_id: string;
+  beach_name: string;
+  starts_at: Date;
+  created_at: Date;
+  gross_cents: number;
+  commission_cents: number;
+  net_cents: number;
+  currency: string;
+  state: LedgerState;
+  settled_at: Date | null;
+};
+
+type PayoutEntry = {
+  settlement_public_id: string | null;
+  booking_public_id: string;
+  beach_name: string;
+  net_cents: number;
+  currency: string;
+  settled_at: Date;
+};
+
+/**
+ * GET /api/merchant/settlements/ledger — the B2B payouts surface backing the
+ * merchant SettlementDashboard: the booked/redeemed/settled transaction
+ * ledger, the derived payout history (one entry per settled settlement —
+ * there is no separate payout table), and the computed balances. Owner-
+ * scoped like every other merchant route (requireUser is mounted at
+ * /api/merchant in index.ts; non-owners simply get an empty ledger).
+ *
+ * The balances are computed over the merchant's FULL history — only the
+ * returned row lists are display-capped, so a high-volume merchant's
+ * available-for-payout figure can never be truncated by the cap.
+ */
+const MAX_LEDGER_ROWS = 200;
+const MAX_PAYOUT_ROWS = 50;
+
+merchantRouter.get(
+  "/api/merchant/settlements/ledger",
+  async (request, response) => {
+    const result = await pool.query(
+      `select
+         bk.public_id as booking_public_id, b.name as beach_name,
+         bk.starts_at, bk.created_at, bk.status as booking_status,
+         coalesce(s.gross_cents, bk.total_cents) as gross_cents,
+         coalesce(s.commission_cents, bk.commission_cents) as commission_cents,
+         coalesce(s.net_cents, bk.total_cents - bk.commission_cents) as net_cents,
+         bk.currency, s.status as settlement_status, s.settled_at,
+         s.public_id as settlement_public_id
+       from merchant m
+       join booking bk on bk.merchant_id = m.id
+       join beach b on b.id = bk.beach_id
+       left join settlement s on s.booking_id = bk.id
+       where m.owner_user_id = $1
+       order by bk.created_at desc`,
+      [request.userId],
+    );
+    const ledger: LedgerEntry[] = [];
+    const payouts: PayoutEntry[] = [];
+    for (const row of result.rows) {
+      const state = deriveLedgerState(row);
+      if (!state) continue;
+      ledger.push({
+        booking_public_id: row.booking_public_id,
+        beach_name: row.beach_name,
+        starts_at: row.starts_at,
+        created_at: row.created_at,
+        gross_cents: row.gross_cents,
+        commission_cents: row.commission_cents,
+        net_cents: row.net_cents,
+        currency: row.currency,
+        state,
+        settled_at: row.settled_at,
+      });
+      if (state === "settled" && row.settled_at) {
+        payouts.push({
+          settlement_public_id: row.settlement_public_id,
+          booking_public_id: row.booking_public_id,
+          beach_name: row.beach_name,
+          net_cents: row.net_cents,
+          currency: row.currency,
+          settled_at: row.settled_at,
+        });
+      }
+    }
+    payouts.sort((a, b) => b.settled_at.getTime() - a.settled_at.getTime());
+    response.json({
+      data: {
+        ledger: ledger.slice(0, MAX_LEDGER_ROWS),
+        payouts: payouts.slice(0, MAX_PAYOUT_ROWS),
+        balance: computeSettlementBalances(
+          ledger.map((row) => ({ state: row.state, netCents: row.net_cents })),
+        ),
+      },
+    });
+  },
+);

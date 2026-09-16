@@ -5,10 +5,15 @@ import {
   CircleAlert,
   Receipt,
   Ticket,
+  Landmark,
 } from "lucide-react";
 import { fetchMyBookings } from "./api";
 import { CancelBookingModal } from "./CancelBookingModal";
 import { BookingReceipt } from "./BookingReceipt";
+import {
+  SettlementDashboard,
+  isMerchantUser,
+} from "../merchant/SettlementDashboard";
 import {
   computeCancelPreview,
   formatMoney,
@@ -24,8 +29,10 @@ import {
  * Self-service My Bookings screen: upcoming and past bookings for the
  * signed-in user. Upcoming confirmed bookings can be cancelled through the
  * cancel modal (refund preview before confirm); any booking can be viewed as
- * a print-friendly receipt. Styles are scoped inline because styles.css is
- * owned by the app shell, not this module.
+ * a print-friendly receipt. Merchant users additionally get a settlements
+ * entry point to the SettlementDashboard (B2B payouts surface); non-merchants
+ * see the screen exactly as before. Styles are scoped inline because
+ * styles.css is owned by the app shell, not this module.
  */
 export function MyBookingsScreen({
   onBack,
@@ -39,6 +46,19 @@ export function MyBookingsScreen({
   const [error, setError] = useState("");
   const [cancelTarget, setCancelTarget] = useState<MyBooking | null>(null);
   const [receiptId, setReceiptId] = useState<string | null>(null);
+  /** null = merchant check still in flight; the entry point stays hidden. */
+  const [isMerchant, setIsMerchant] = useState<boolean | null>(null);
+  const [showSettlements, setShowSettlements] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void isMerchantUser().then((merchant) => {
+      if (!cancelled) setIsMerchant(merchant);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,6 +87,10 @@ export function MyBookingsScreen({
         onBack={() => setReceiptId(null)}
       />
     );
+  }
+
+  if (showSettlements) {
+    return <SettlementDashboard onBack={() => setShowSettlements(false)} />;
   }
 
   const { upcoming, past } = partitionBookings(bookings);
@@ -167,6 +191,7 @@ export function MyBookingsScreen({
         .bk-cancel { background: rgba(255,107,92,0.1); border: none; color: #c04b40; font-weight: 600; font-size: 13px; cursor: pointer; padding: 6px 10px; border-radius: 8px; }
         .bk-empty { text-align: center; color: #51616f; padding: 32px 12px; }
         .bk-error { display: flex; gap: 8px; align-items: center; color: #c04b40; background: rgba(255,107,92,0.08); border-radius: 10px; padding: 10px 12px; margin: 12px 0; }
+        .bk-merchant-entry { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; background: #0F1E2E; color: #FAF6F0; border: none; border-radius: 12px; padding: 12px; font-weight: 600; font-size: 14px; cursor: pointer; }
       `}</style>
       <header className="bk-header">
         <button className="icon-button" onClick={onBack} aria-label="Go back">
@@ -212,6 +237,15 @@ export function MyBookingsScreen({
             )}
           </>
         )}
+        {isMerchant ? (
+          <button
+            className="bk-merchant-entry"
+            onClick={() => setShowSettlements(true)}
+            aria-label="View settlement dashboard"
+          >
+            <Landmark size={15} /> Settlements · payouts &amp; ledger
+          </button>
+        ) : null}
       </main>
       {cancelTarget ? (
         <CancelBookingModal
