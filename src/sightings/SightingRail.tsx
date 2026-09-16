@@ -1,4 +1,10 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
+import { assembleShareCard } from "../share/card";
+import { ShareSheet } from "../share/ShareSheet";
+import type {
+  ShareBeachIdentity,
+  ShareConditionSnapshot,
+} from "../share/types";
 import {
   formatSightingAge,
   formatSightingAudience,
@@ -18,6 +24,15 @@ export type SightingRailProps = {
   /** Maximum number of sightings shown. */
   limit?: number;
   beachId?: string;
+  /**
+   * Beach identity backing the PRD 5.5 share handoff. When provided, the
+   * rail renders a share action per sighting plus a beach-level action,
+   * and the opened ShareSheet carries this identity in its deep link.
+   * Omit to hide all share affordances.
+   */
+  beach?: ShareBeachIdentity;
+  /** Live conditions for the share card; null/omitted degrades the card. */
+  conditions?: ShareConditionSnapshot | null;
   onCapture?: () => void;
   onRetry?: () => void;
 };
@@ -130,6 +145,24 @@ const noteStyle: CSSProperties = {
   color: "#5A6B7A",
 };
 
+const shareActionStyle: CSSProperties = {
+  marginTop: 8,
+  padding: "5px 10px",
+  borderRadius: 999,
+  border: "1px solid rgba(10,110,120,0.35)",
+  background: "rgba(10,110,120,0.08)",
+  color: "#0A6E78",
+  fontSize: 11,
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+const headerActionStyle: CSSProperties = {
+  ...shareActionStyle,
+  marginTop: 0,
+  flex: "0 0 auto",
+};
+
 export function SightingRail({
   sightings,
   status,
@@ -137,10 +170,19 @@ export function SightingRail({
   error = null,
   limit = 6,
   beachId,
+  beach,
+  conditions = null,
   onCapture,
   onRetry,
 }: SightingRailProps) {
+  const [shareOpen, setShareOpen] = useState(false);
   const rail = selectRailSightings(sightings, { now, limit, beachId });
+  // PRD 5.5 handoff: the share card carries live beach conditions, so every
+  // sighting and the beach itself share one payload built from the same
+  // injected `now` the rail renders with — no hidden clock.
+  const sharePayload =
+    beach != null ? assembleShareCard({ beach, conditions }, now) : null;
+  const openShare = () => setShareOpen(true);
 
   return (
     <section
@@ -153,6 +195,17 @@ export function SightingRail({
         <span className="sighting-rail-count" style={countStyle}>
           {status === "ready" ? `${rail.length} live` : "…"}
         </span>
+        {beach != null ? (
+          <button
+            type="button"
+            className="sighting-rail-share"
+            style={headerActionStyle}
+            aria-label={`Share ${beach.name} conditions`}
+            onClick={openShare}
+          >
+            Share beach
+          </button>
+        ) : null}
       </header>
 
       {status === "loading" ? (
@@ -245,6 +298,17 @@ export function SightingRail({
                     {sighting.caption}
                   </p>
                 ) : null}
+                {beach != null ? (
+                  <button
+                    type="button"
+                    className="sighting-item-share"
+                    style={shareActionStyle}
+                    aria-label={`Share ${beach.name} conditions from this sighting`}
+                    onClick={openShare}
+                  >
+                    Share
+                  </button>
+                ) : null}
               </div>
             </li>
           ))}
@@ -255,6 +319,17 @@ export function SightingRail({
         Photos &amp; videos vanish after 7 days. Links stay as credits — never
         re-hosted.
       </footer>
+
+      {/* Beach-scoped by design: every share entry point (per-sighting and
+          beach-level) hands the audience to the same live beach card —
+          the deep link points at the beach, not the ephemeral sighting. */}
+      {sharePayload != null ? (
+        <ShareSheet
+          open={shareOpen}
+          payload={sharePayload}
+          onClose={() => setShareOpen(false)}
+        />
+      ) : null}
     </section>
   );
 }
