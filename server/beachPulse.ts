@@ -34,12 +34,22 @@
  *    This is strong enough that a stale-signal beach ranks below a
  *    fresh-signal beach even when the stale one's conditions are perfect.
  *
- * 5. Blend: score = blend.conditions * conditions + blend.community *
- *    community, with per-audience blend weights. Rounded and clamped to
+ * 5. Live-now factor: the blended score is multiplied by
+ *    liveNowFactor(newestAnyAudienceSignalAge) — the newest sighting or
+ *    check-in from ANY audience. Within LIVE_NOW_WINDOW_H (2h) the beach is
+ *    boosted by the documented LIVE_NOW_BOOST (1.05); the boost decays
+ *    linearly to LIVE_NOW_FLOOR (0.8) at LIVE_NOW_DECAY_H (24h), and a beach
+ *    with no signals at all sits at the floor. Audience-agnostic by design —
+ *    it answers "is this beach alive right now"; the per-audience "nobody
+ *    like you" view comes from factor 4.
+ *
+ * 6. Blend: score = blend.conditions * conditions + blend.community *
+ *    community, with per-audience blend weights, then multiplied by the
+ *    live-now factor. Rounded and clamped to
  *    0-100 only at the very end; NaN-safe throughout (empty input yields a
  *    finite score, never NaN).
  *
- * 6. Confidence: 0.5 * (share of condition signals present) + 0.5 *
+ * 7. Confidence: 0.5 * (share of condition signals present) + 0.5 *
  *    freshness — an honest 0-1 estimate of how much live data backs the
  *    score.
  */
@@ -116,6 +126,12 @@ export type PulseBreakdown = {
   freshness: number;
   /** Condition staleness multiplier, 0-1. */
   conditionFreshness: number;
+  /**
+   * Live-now multiplier applied to the blended score, 0.8-1.05. Boosted
+   * (>= 1.05) while any sighting or check-in is younger than 2h; decays to
+   * 0.8 once the newest signal is 24h old or older (or there are none).
+   */
+  liveNow: number;
 };
 
 export type PulseResult = {
@@ -128,6 +144,8 @@ export type PulseResult = {
   staleConditions: boolean;
   conditionAgeH: number | null;
   lastSignalAgeH: number | null;
+  /** Age (h) of the most recent sighting/check-in from ANY audience, null when none. */
+  lastLiveSignalAgeH: number | null;
   breakdown: PulseBreakdown;
 };
 
@@ -149,6 +167,14 @@ export const FRESHNESS_WINDOW_H = 4;
 export const ACTIVITY_WINDOW_H = 6;
 /** Documented neutral default for missing vibe votes and accuracy ratings (0-100). */
 export const NEUTRAL_SIGNAL_SCORE = 50;
+/** Age (h) within which the newest sighting/check-in keeps the beach boosted. */
+export const LIVE_NOW_WINDOW_H = 2;
+/** Age (h) at/beyond which the live-now factor bottoms out at the floor. */
+export const LIVE_NOW_DECAY_H = 24;
+/** Documented boost applied while the newest sighting/check-in is within LIVE_NOW_WINDOW_H. */
+export const LIVE_NOW_BOOST = 1.05;
+/** Documented floor once there is no sighting/check-in within LIVE_NOW_DECAY_H (<= 0.85 by contract). */
+export const LIVE_NOW_FLOOR = 0.8;
 
 /** Documented, never-null fallbacks for missing condition signals — mild, never perfect. */
 type ConditionDefaults = {
@@ -364,6 +390,16 @@ export const AUDIENCE_LABELS: AudienceLabels = {
   chill: "Chill",
 };
 
+/** Canonical chip order for the AudiencePicker. */
+export const PULSE_AUDIENCES: PulseAudience[] = [
+  "family",
+  "friends",
+  "solo",
+  "couples",
+  "party",
+  "chill",
+];
+
 export type PulseOptions = {
   audience: PulseAudience;
   /** Injected clock — the module never reads the system clock, so tests are deterministic. */
@@ -415,6 +451,21 @@ export function freshnessFactor(
   if (ageH === null) return 0;
   if (ageH <= FRESHNESS_WINDOW_H) return 1;
   return Math.pow(0.5, (ageH - FRESHNESS_WINDOW_H) / halfLifeH);
+}
+
+/**
+ * Live-now factor: the "is this beach alive right now" multiplier applied to
+ * the blended score. Boosted (>= 1.05) while the newest sighting or check-in
+ * is within LIVE_NOW_WINDOW_H, decaying linearly to LIVE_NOW_FLOOR at
+ * LIVE_NOW_DECAY_H. No signals at all (null) sits at the floor — nobody
+ * there right now.
+ */
+export function liveNowFactor(ageH: number | null): number {
+  if (ageH === null) return LIVE_NOW_FLOOR;
+  if (ageH <= LIVE_NOW_WINDOW_H) return LIVE_NOW_BOOST;
+  if (ageH >= LIVE_NOW_DECAY_H) return LIVE_NOW_FLOOR;
+  const t = (ageH - LIVE_NOW_WINDOW_H) / (LIVE_NOW_DECAY_H - LIVE_NOW_WINDOW_H);
+  return LIVE_NOW_BOOST + (LIVE_NOW_FLOOR - LIVE_NOW_BOOST) * t;
 }
 
 type ConditionScore = {
@@ -560,6 +611,13 @@ export function computePulse(
   const cond = scoreConditions(input.conditions, profile, opts.now);
   const comm = scoreCommunity(input, opts.audience, profile, opts.now);
 
+  // Live-now: age of the newest sighting or check-in from ANY audience.
+  const liveAges = (input.community?.checkIns ?? [])
+    .map((s) => ageHours(s.at, opts.now))
+    .filter((a): a is number => a !== null);
+  const lastLiveSignalAgeH = liveAges.length > 0 ? Math.min(...liveAges) : null;
+  const liveNow = liveNowFactor(lastLiveSignalAgeH);
+
   const breakdown: PulseBreakdown = {
     conditions: cond.adjusted,
     community: comm.adjusted,
@@ -567,12 +625,13 @@ export function computePulse(
     vibe: comm.vibe,
     freshness: comm.freshness,
     conditionFreshness: cond.stale ? STALE_CONDITION_FACTOR : 1,
+    liveNow,
   };
 
   const raw =
     profile.blend.conditions * breakdown.conditions +
     profile.blend.community * breakdown.community;
-  const score = clampScore(Math.round(raw));
+  const score = clampScore(Math.round(raw * liveNow));
 
   const confidence = clamp01(0.5 * (cond.present / 7) + 0.5 * comm.freshness);
 
@@ -584,6 +643,7 @@ export function computePulse(
     staleConditions: cond.stale,
     conditionAgeH: cond.ageH,
     lastSignalAgeH: comm.lastSignalAgeH,
+    lastLiveSignalAgeH,
     breakdown,
   };
 }

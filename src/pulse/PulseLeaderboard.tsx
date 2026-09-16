@@ -1,14 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { AUDIENCE_LABELS } from "./scoring";
+import { AUDIENCE_LABELS, rankByPulse } from "./scoring";
+import AudiencePicker from "./AudiencePicker";
 import PulseBadge from "./PulseBadge";
-import type { PulseAudience, PulseRankedItem } from "./types";
+import type { PulseAudience, PulseInput, PulseRankedItem } from "./types";
 
 type Props = {
-  /** Pre-ranked rows (score desc). Defensively re-sorted — never trusted blindly. */
-  items: PulseRankedItem[];
-  /** The audience leaderboard the rows were scored for. */
-  audience: PulseAudience;
+  /**
+   * Pre-ranked rows (score desc), for the pre-scored/controlled mode.
+   * Defensively re-sorted — never trusted blindly. Required (with
+   * `audience`) unless `inputs` is passed.
+   */
+  items?: PulseRankedItem[];
+  /** The audience leaderboard the rows were scored for. Required in controlled mode. */
+  audience?: PulseAudience;
+  /**
+   * Raw Pulse inputs, for the self-scoring mode: the leaderboard then owns
+   * the audience state, renders an AudiencePicker and re-ranks in place on
+   * every switch — no reload, no fetch, no external state. Mutually
+   * exclusive with `items`.
+   */
+  inputs?: PulseInput[];
+  /** Injected clock for the self-scoring mode. Defaults to mount time. */
+  now?: Date;
   loading?: boolean;
   /** When set, renders an error banner with a retry action instead of rows. */
   error?: string | null;
@@ -54,14 +68,24 @@ const bannerStyle: React.CSSProperties = {
 
 /**
  * Per-audience Beach Pulse leaderboard. Standalone: imports only from this
- * folder's ./scoring, ./types and ./PulseBadge — never from shared shell
- * files (src/types.ts, src/logic.ts, App.tsx). Renders purely from props:
- * loading, error, empty and ranked states are all driven by props, with no
- * data fetching and no external state.
+ * folder's ./scoring, ./types, ./PulseBadge and ./AudiencePicker — never from
+ * shared shell files (src/types.ts, src/logic.ts, App.tsx).
+ *
+ * Two modes, both rendering purely from props:
+ *
+ * - Controlled (`items` + `audience`): pre-scored rows, no internal state.
+ *   This is the contract the app shell already mounts; it is unchanged.
+ * - Self-scoring (`inputs`, optionally `now`): the leaderboard owns the
+ *   audience selection, renders the AudiencePicker above the list and
+ *   re-ranks in place via rankByPulse on every chip switch. Loading, error
+ *   and empty states still come from props; the list region is a polite
+ *   live region so assistive tech announces the re-ranked order.
  */
 export default function PulseLeaderboard({
   items,
   audience,
+  inputs,
+  now,
   loading = false,
   error = null,
   onRetry,
@@ -70,19 +94,54 @@ export default function PulseLeaderboard({
   className,
 }: Props) {
   const reducedMotion = usePrefersReducedMotion();
+  const listId = useId();
 
-  const ranked = useMemo(
-    () =>
-      [...items]
-        .filter((item) => item && Number.isFinite(item.score))
-        .sort(
-          (a, b) =>
-            b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-        ),
-    [items],
-  );
+  const ownsScoring = inputs !== undefined;
+  const [picked, setPicked] = useState<PulseAudience>(audience ?? "family");
+  const activeAudience = ownsScoring ? picked : (audience ?? "family");
 
-  const title = `Beach Pulse — ${AUDIENCE_LABELS[audience]}`;
+  // One clock per `now` prop identity — re-ranking stays deterministic
+  // across re-renders without reading the system clock on every render.
+  const effectiveNow = useMemo(() => now ?? new Date(), [now]);
+
+  // Self-scoring mode: rank the raw inputs for the selected audience.
+  const computed = useMemo<PulseRankedItem[] | null>(() => {
+    if (!ownsScoring) return null;
+    const names = new Map(
+      (inputs ?? []).map((beach) => [beach.id, beach.name ?? beach.id]),
+    );
+    return rankByPulse(inputs ?? [], {
+      audience: picked,
+      now: effectiveNow,
+    }).map((result) => ({
+      id: result.id,
+      name: names.get(result.id) ?? result.id,
+      score: result.score,
+      staleConditions: result.staleConditions,
+    }));
+  }, [ownsScoring, inputs, picked, effectiveNow]);
+
+  const ranked = useMemo(() => {
+    const source = ownsScoring ? (computed ?? []) : (items ?? []);
+    return [...source]
+      .filter((item) => item && Number.isFinite(item.score))
+      .sort(
+        (a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      );
+  }, [ownsScoring, computed, items]);
+
+  const title = `Beach Pulse — ${AUDIENCE_LABELS[activeAudience]}`;
+
+  // In self-scoring mode the picker sits above every state so the audience
+  // can be switched while loading, on error, or when the list is empty.
+  const picker = ownsScoring ? (
+    <AudiencePicker
+      value={picked}
+      onChange={setPicked}
+      controlsId={listId}
+      label="Beach Pulse audience"
+    />
+  ) : null;
 
   if (loading) {
     return (
@@ -92,6 +151,7 @@ export default function PulseLeaderboard({
         aria-busy="true"
         aria-label={title}
       >
+        {picker}
         {Array.from({ length: SKELETON_ROWS }, (_, i) => (
           <div
             key={i}
@@ -135,9 +195,10 @@ export default function PulseLeaderboard({
         role="alert"
         aria-label={title}
       >
+        {picker}
         <div style={{ ...bannerStyle, backgroundColor: "#FF6B5C1A" }}>
           <p style={{ margin: "0 0 10px", fontWeight: 600 }}>
-            Couldn’t load the {AUDIENCE_LABELS[audience]} leaderboard.
+            Couldn’t load the {AUDIENCE_LABELS[activeAudience]} leaderboard.
           </p>
           <p style={{ margin: "0 0 12px", fontSize: "13px", opacity: 0.8 }}>
             {error}
@@ -167,6 +228,7 @@ export default function PulseLeaderboard({
   if (ranked.length === 0) {
     return (
       <section className={className} style={sectionStyle} aria-label={title}>
+        {picker}
         <div style={{ ...bannerStyle, backgroundColor: "#0F1E2E0D" }}>
           <p style={{ margin: 0 }}>{emptyMessage}</p>
         </div>
@@ -176,7 +238,10 @@ export default function PulseLeaderboard({
 
   return (
     <section className={className} style={sectionStyle} aria-label={title}>
+      {picker}
       <ol
+        id={listId}
+        aria-live={ownsScoring ? "polite" : undefined}
         style={{
           listStyle: "none",
           margin: 0,
@@ -244,7 +309,7 @@ export default function PulseLeaderboard({
             </span>
             <PulseBadge
               score={item.score}
-              audience={audience}
+              audience={activeAudience}
               staleConditions={item.staleConditions}
             />
           </li>
