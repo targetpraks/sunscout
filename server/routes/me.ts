@@ -2,9 +2,28 @@ import express from "express";
 import { z } from "zod";
 import { audit } from "../audit";
 import { awardBadge, getAwardedBadges, getUserPoints } from "../badges";
+import {
+  createCompanion,
+  deleteCompanion,
+  listCompanions,
+} from "../companions";
 import { pool, withTransaction } from "../db";
 import { pushConfigured, pushPublicKey } from "../push";
 export const meRouter = express.Router();
+
+/**
+ * Same defensive guard as the booking lifecycle router
+ * (server/bookings.ts): the /api/me mount already enforces auth via
+ * requireUser in index.ts, so in practice this never throws — it exists so
+ * a companion handler mounted ungated fails closed with 401 instead of
+ * operating on an undefined user id.
+ */
+function requireUserId(request: express.Request): number {
+  if (request.userId == null) {
+    throw Object.assign(new Error("unauthorized"), { status: 401 });
+  }
+  return request.userId;
+}
 
 meRouter.get("/api/me", async (request, response) => {
   const result = await pool.query(
@@ -424,6 +443,59 @@ const friendSchema = z.object({
     .enum(["family", "friend", "solo", "partner", "kid"])
     .default("friend"),
 });
+
+// ---------------------------------------------------------------------------
+// Companions — the caller's group profile (2026-06-22 group direction).
+// Auth gate is inherited from the /api/me requireUser mount in index.ts; the
+// userId guard below is the same defensive check the booking lifecycle
+// router performs, in case the router is ever mounted ungated.
+// ---------------------------------------------------------------------------
+
+const companionSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  relationship: z.enum(["family", "friend", "solo"]).default("friend"),
+});
+
+meRouter.get("/api/me/companions", async (request, response) => {
+  const companions = await listCompanions(pool, requireUserId(request));
+  response.json({ data: companions });
+});
+
+meRouter.post("/api/me/companions", async (request, response) => {
+  const input = companionSchema.parse(request.body);
+  const userId = requireUserId(request);
+  const result = await createCompanion(pool, {
+    userId,
+    name: input.name,
+    relationship: input.relationship,
+  });
+  if (result.outcome === "duplicate_name") {
+    response.status(409).json({ error: "companion_duplicate_name" });
+    return;
+  }
+  await audit(userId, "companion_added", result.companion.publicId, {
+    name: result.companion.name,
+    relationship: result.companion.relationship,
+  });
+  response.status(201).json({ data: result.companion });
+});
+
+meRouter.delete(
+  "/api/me/companions/:companionId",
+  async (request, response) => {
+    const userId = requireUserId(request);
+    const removed = await deleteCompanion(pool, {
+      userId,
+      companionPublicId: request.params.companionId,
+    });
+    if (!removed) {
+      response.status(404).json({ error: "companion_not_found" });
+      return;
+    }
+    await audit(userId, "companion_removed", request.params.companionId, {});
+    response.status(204).end();
+  },
+);
 
 meRouter.get("/api/me/friends", async (request, response) => {
   const result = await pool.query(

@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, CircleAlert, Printer } from "lucide-react";
+import { ArrowLeft, CircleAlert, Pencil, Printer } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { fetchBookingReceipt } from "./api";
+import { CompanionRow, companionChipStyles } from "../profile/CompanionRow";
+import { CompanionsEditor } from "../profile/CompanionsEditor";
+import { fetchBookingCompanions } from "../profile/api";
+import { type Companion } from "../profile/types";
 import {
   formatMoney,
   REFUND_TIER_LABELS,
@@ -10,9 +14,12 @@ import {
 
 /**
  * Print-friendly booking receipt: booking details, line items, merchant
- * info, cancellation outcome when present, and the signed QR redemption
- * token. Print rules are scoped inline (styles.css is owned by the app
- * shell) using the visibility technique so only the receipt prints.
+ * info, cancellation outcome when present, the signed QR redemption
+ * token, and the "Who's coming" companion chips with an editor to change
+ * them. Companion loading is deliberately non-fatal — if the companions
+ * request fails the receipt still renders. Print rules are scoped inline
+ * (styles.css is owned by the app shell) using the visibility technique so
+ * only the receipt prints.
  */
 export function BookingReceipt({
   bookingPublicId,
@@ -24,6 +31,9 @@ export function BookingReceipt({
   const [receipt, setReceipt] = useState<BookingReceiptData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [companions, setCompanions] = useState<Companion[]>([]);
+  const [companionsLoading, setCompanionsLoading] = useState(true);
+  const [editingCompanions, setEditingCompanions] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +54,17 @@ export function BookingReceipt({
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+    // Non-fatal: chips are supplementary receipt detail, so a failure here
+    // (including a 404 on an older deployment without the companions API)
+    // leaves the receipt intact and hides the section.
+    fetchBookingCompanions(bookingPublicId)
+      .then((data) => {
+        if (!cancelled) setCompanions(data);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setCompanionsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -66,6 +87,10 @@ export function BookingReceipt({
         .bk-receipt-qr { display: grid; justify-items: center; gap: 8px; padding: 12px 0 4px; }
         .bk-receipt-qr small { color: #51616f; text-align: center; max-width: 260px; }
         .bk-receipt-actions { display: flex; gap: 10px; padding: 0 16px 24px; }
+        .bk-receipt-companions { border-top: 1px dashed #c9d3db; margin-top: 10px; padding-top: 10px; }
+        .bk-receipt-companions-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        .bk-receipt-companions-head h3 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: #0A6E78; }
+        .bk-receipt-companions-edit { display: inline-flex; align-items: center; gap: 4px; background: none; border: none; color: #0A6E78; font-weight: 600; font-size: 13px; cursor: pointer; padding: 4px 8px; border-radius: 8px; }
         @media print {
           body * { visibility: hidden; }
           .bk-receipt, .bk-receipt * { visibility: visible; }
@@ -73,6 +98,7 @@ export function BookingReceipt({
           .bk-receipt-actions, .bk-header { display: none !important; }
         }
       `}</style>
+      <style>{companionChipStyles()}</style>
       <header className="bk-header">
         <button className="icon-button" onClick={onBack} aria-label="Go back">
           <ArrowLeft />
@@ -201,6 +227,34 @@ export function BookingReceipt({
                 verified on redemption.
               </small>
             </div>
+            <div className="bk-receipt-companions">
+              <div className="bk-receipt-companions-head">
+                <h3>Who's coming</h3>
+                <button
+                  className="bk-receipt-companions-edit"
+                  onClick={() => setEditingCompanions(true)}
+                  type="button"
+                >
+                  <Pencil size={13} /> Edit
+                </button>
+              </div>
+              {companionsLoading ? (
+                <p className="pf-chip-empty">Loading companions…</p>
+              ) : companions.length ? (
+                <div className="pf-chip-list">
+                  {companions.map((companion) => (
+                    <CompanionRow
+                      companion={companion}
+                      key={companion.publicId}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="pf-chip-empty">
+                  No one attached yet — tap Edit to add companions.
+                </p>
+              )}
+            </div>
           </article>
           <div className="bk-receipt-actions">
             <button className="secondary-button" onClick={onBack}>
@@ -211,6 +265,17 @@ export function BookingReceipt({
             </button>
           </div>
         </main>
+      ) : null}
+      {editingCompanions ? (
+        <CompanionsEditor
+          bookingPublicId={bookingPublicId}
+          attachedCompanions={companions}
+          onClose={() => setEditingCompanions(false)}
+          onSaved={(saved) => {
+            setCompanions(saved);
+            setEditingCompanions(false);
+          }}
+        />
       ) : null}
     </div>
   );

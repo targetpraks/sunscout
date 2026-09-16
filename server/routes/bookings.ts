@@ -3,6 +3,7 @@ import { z } from "zod";
 import { audit } from "../audit";
 import { awardBadge } from "../badges";
 import { computeSettlement } from "../billing";
+import { getBookingCompanions, setBookingCompanions } from "../companions";
 import { pool, withTransaction } from "../db";
 import { createCheckoutSession } from "../payments";
 import { createBookingToken, newPublicId } from "../tokens";
@@ -201,5 +202,81 @@ bookingsCoreRouter.post(
       beachName: booking.rows[0].beach_name,
     });
     response.json({ data: session });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Booking companions ("Who's coming", 2026-06-22 group direction)
+// ---------------------------------------------------------------------------
+
+function requireBookingsUserId(request: express.Request): number {
+  if (request.userId == null) {
+    throw Object.assign(new Error("unauthorized"), { status: 401 });
+  }
+  return request.userId;
+}
+
+const bookingCompanionsSchema = z.object({
+  // Required (no default): a PATCH is a full replace, so an absent field
+  // must be a 400 rather than silently clearing the booking's companions.
+  companionPublicIds: z.array(z.string().uuid()).max(50),
+});
+
+/**
+ * GET /api/bookings/:bookingPublicId/companions — the companions attached to
+ * a booking, for the receipt's "Who's coming" chips. 404 for both missing
+ * and foreign bookings (indistinguishable by design, same as the receipt).
+ */
+bookingsCoreRouter.get(
+  "/api/bookings/:bookingPublicId/companions",
+  async (request, response) => {
+    const userId = requireBookingsUserId(request);
+    const companions = await getBookingCompanions(pool, {
+      bookingPublicId: request.params.bookingPublicId,
+      userId,
+    });
+    if (!companions) {
+      throw Object.assign(new Error("booking_not_found"), { status: 404 });
+    }
+    response.json({ data: companions });
+  },
+);
+
+/**
+ * PATCH /api/bookings/:bookingPublicId/companions — replace the full
+ * companion set on a booking owned by the caller. Mounted in the core
+ * router, which index.ts mounts before the lifecycle bookings router, so
+ * this specific path wins registration-order matching over the lifecycle
+ * routes. Every companion must belong to the caller; otherwise the
+ * transaction rolls back and 422 companion_not_owned_or_missing is
+ * returned. Writes an audit_log row on success.
+ */
+bookingsCoreRouter.patch(
+  "/api/bookings/:bookingPublicId/companions",
+  async (request, response) => {
+    const userId = requireBookingsUserId(request);
+    const input = bookingCompanionsSchema.parse(request.body ?? {});
+    const result = await withTransaction((client) =>
+      setBookingCompanions(client, {
+        bookingPublicId: request.params.bookingPublicId,
+        userId,
+        companionPublicIds: input.companionPublicIds,
+      }),
+    );
+    if (result.outcome === "not_found") {
+      throw Object.assign(new Error("booking_not_found"), { status: 404 });
+    }
+    await audit(
+      userId,
+      "booking_companions_updated",
+      request.params.bookingPublicId,
+      {
+        companionPublicIds: result.companions.map(
+          (companion) => companion.publicId,
+        ),
+        count: result.companions.length,
+      },
+    );
+    response.json({ data: result.companions });
   },
 );
