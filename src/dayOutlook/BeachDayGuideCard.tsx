@@ -1,4 +1,5 @@
 import { isStaleObservation, type DayScore } from "./types";
+import { TripDayTimelineCard } from "../tripday/TripDayTimelineCard";
 
 /** Live-condition inputs the guide derives from. All optional + honest. */
 export type DayGuideConditions = {
@@ -71,9 +72,16 @@ function bringList(airTempC: number | null, waterQuality?: string | null) {
 export function BeachDayGuideCard({
   dayScore,
   conditions,
+  slug,
 }: {
   dayScore: DayScore;
   conditions?: DayGuideConditions;
+  /**
+   * Beach slug — threads through to the timed day-plan card. Optional so
+   * existing call sites (and tests) keep working; without it the timeline
+   * section is simply absent.
+   */
+  slug?: string;
 }) {
   if (isStaleObservation(dayScore)) {
     return (
@@ -133,6 +141,7 @@ export function BeachDayGuideCard({
           <li key={item}>{item}</li>
         ))}
       </ul>
+      {slug ? <TripDayTimelineCard slug={slug} /> : null}
     </section>
   );
 }
