@@ -95,13 +95,13 @@ import {
   setBeachSaved as apiSetSaved,
   setNotificationPreference,
   setPremium as setApiPremium,
-  submitFeedback,
   fetchFriends,
   addFriend,
   deleteFriend,
   updateMerchantInventory,
   voteVibe as apiVoteVibe,
 } from "./api";
+import { AccuracyPanel } from "./accuracy/AccuracyPanel";
 import { beaches as fallbackBeaches, tideData } from "./data";
 import {
   ACTIVITY_OPTIONS,
@@ -409,52 +409,6 @@ function Conditions({ beach }: { beach: Beach }) {
   );
 }
 
-function AccuracyVote({
-  beach,
-  metrics,
-}: {
-  beach: Beach;
-  metrics: Array<{ key: string; label: string }>;
-}) {
-  const [votes, setVotes] = useState<Record<string, boolean>>({});
-  const vote = (key: string, accurate: boolean) => {
-    setVotes((current) => ({ ...current, [key]: accurate }));
-    void submitFeedback(beach.slug ?? beach.id, key, accurate).catch(
-      () => undefined,
-    );
-    eventLog("beach_saved", { beachId: beach.id, feedback: key, accurate });
-  };
-  return (
-    <section className="accuracy-vote">
-      <div className="section-heading compact-heading">
-        <h2>Are these accurate?</h2>
-        <Info aria-label="Your rating improves conditions for everyone" />
-      </div>
-      <div className="accuracy-list">
-        {metrics.map((metric) => (
-          <span className="accuracy-item" key={metric.key}>
-            <small>{metric.label}</small>
-            <button
-              className={votes[metric.key] === true ? "active" : ""}
-              onClick={() => vote(metric.key, true)}
-              aria-label={`${metric.label} accurate`}
-            >
-              <Check size={15} />
-            </button>
-            <button
-              className={votes[metric.key] === false ? "active" : ""}
-              onClick={() => vote(metric.key, false)}
-              aria-label={`${metric.label} inaccurate`}
-            >
-              <X size={15} />
-            </button>
-          </span>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function Freshness({ beach }: { beach: Beach }) {
   const source = sourceLabel(beach);
   return (
@@ -583,7 +537,7 @@ function TodayScreen({
         ) : null}
         <SuitabilityRail beach={beach} onSelect={onToast} />
         <Conditions beach={beach} />
-        <AccuracyVote beach={beach} metrics={conditionMetrics(beach)} />
+        <AccuracyPanel beachId={beach.slug ?? beach.id} />
         <Suspense fallback={null}>
           <TidePanel
             points={beach.tide?.points?.length ? beach.tide.points : tideData}
@@ -1619,6 +1573,7 @@ function BeachDetail({
           </section>
         ) : null}
         <VibeVotes beach={beach} onVote={onVoteVibe} />
+        <AccuracyPanel beachId={beach.slug ?? beach.id} />
         <PhotoGallery beach={beach} />
         <HazardList beach={beach} />
         <DayQualityCard slug={beach.slug ?? beach.id} />
