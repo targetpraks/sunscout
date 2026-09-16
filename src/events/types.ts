@@ -149,3 +149,19 @@ export function formatEventRange(startsAt: string, endsAt: string): string {
     ? `${day} · ${fmt(start)}–${fmt(end)}`
     : `${day} ${fmt(start)} – ${end.toLocaleDateString(undefined, { day: "numeric", month: "short" })} ${fmt(end)}`;
 }
+
+/**
+ * Human label for how much of an event's window is left, relative to `now`.
+ * Pure and locale-free so tests stay deterministic. Windows that have
+ * already closed report "Ended" — defensive only: callers filter first.
+ */
+export function formatEventRemaining(endsAt: string, now: Date): string {
+  const ms = new Date(endsAt).getTime() - now.getTime();
+  if (ms <= 0) return "Ended";
+  const totalMinutes = Math.floor(ms / 60_000);
+  if (totalMinutes === 0) return "Ends in <1m";
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `Ends in ${minutes}m`;
+  return minutes === 0 ? `Ends in ${hours}h` : `Ends in ${hours}h ${minutes}m`;
+}
