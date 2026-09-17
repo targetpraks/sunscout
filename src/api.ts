@@ -787,3 +787,28 @@ export async function fetchDayQuality(
     return null;
   }
 }
+
+// === Beach Map heat discovery (additive) ===
+//
+// The map's pin-coloring input: live Beach Pulse score per beach id, derived
+// client-side from the same /api/beaches payload the map already receives
+// (no new endpoint, no server change). Pure: deterministic for a fixed
+// (beaches, audience, now).
+
+/**
+ * Pulse score per beach id (0-100) for one audience — the record the BeachMap
+ * `pulseScores` prop consumes. Missing beaches are simply absent; the map
+ * falls back to each beach's match score for entries not in the record.
+ */
+export function beachPulseScores(
+  beaches: Beach[],
+  audience: PulseAudience,
+  now: Date,
+): Record<string, number> {
+  return Object.fromEntries(
+    rankBeachesByPulse(beaches, audience, now).map((item) => [
+      item.id,
+      item.score,
+    ]),
+  );
+}
